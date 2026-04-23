@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+
+{% block title %}Configuración de Acceso | CloudManager{% endblock %}
+
+{% block content %}
+<div class="animate-fade">
+    <div class="d-flex justify-content-between align-items-end mb-5">
+        <div>
+            <h1 class="fw-bold mb-1">Configuración de Acceso</h1>
+            <p class="text-secondary mb-0">Gestiona quién tiene acceso a esta plataforma y sus niveles de permiso.</p>
+        </div>
+        <button class="btn btn-primary" onclick="openPlatformUserModal()">
+            <i class="bi bi-person-plus-fill me-2"></i> Nuevo Usuario de Red
+        </button>
+    </div>
+
+    <div class="card p-0 overflow-hidden border-0 bg-transparent">
+        <table class="table table-premium align-middle">
+            <thead>
+                <tr class="text-secondary small text-uppercase fw-bold">
+                    <th class="ps-4">Usuario</th>
+                    <th>Email (M365)</th>
+                    <th>Rol</th>
+                    <th>Estado</th>
+                    <th>Último Acceso</th>
+                    <th class="text-end pe-4">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p_user in platform_users %}
+                <tr>
+                    <td class="ps-4">
+                        <div class="d-flex align-items-center">
+                            <div class="bg-light p-2 rounded-3 me-3">
+                                <i class="bi bi-person-badge fs-5 text-primary"></i>
+                            </div>
+                            <div class="fw-bold">{{ p_user.name }}</div>
+                        </div>
+                    </td>
+                    <td><span class="text-secondary fw-semibold">{{ p_user.email }}</span></td>
+                    <td>
+                        <span class="badge {{ 'bg-danger' if p_user.role == 'SUPERADMIN' else 'bg-primary' if p_user.role == 'ADMIN' else 'bg-secondary' }} bg-opacity-10 {{ 'text-danger' if p_user.role == 'SUPERADMIN' else 'text-primary' if p_user.role == 'ADMIN' else 'text-secondary' }} fw-bold">
+                            {{ p_user.role }}
+                        </span>
+                    </td>
+                    <td>
+                        {% if p_user.is_active %}
+                        <span class="badge-soft text-success bg-success bg-opacity-10">Activo</span>
+                        {% else %}
+                        <span class="badge-soft text-danger bg-danger bg-opacity-10">Inactivo</span>
+                        {% endif %}
+                    </td>
+                    <td><small class="text-muted">{{ p_user.last_login.strftime('%d %b, %H:%M') if p_user.last_login else 'Nunca' }}</small></td>
+                    <td class="text-end pe-4">
+                        <button class="btn btn-light btn-sm rounded-3 me-1" onclick="editPlatformUser('{{ p_user.id }}')">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        {% if p_user.email != current_user.email %}
+                        <button class="btn btn-outline-danger btn-sm rounded-3" onclick="deletePlatformUser('{{ p_user.id }}', '{{ p_user.name }}')">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal Platform User -->
+<div class="modal fade" id="platformUserModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 24px;">
+            <div class="modal-header border-0 p-4 pb-0">
+                <h5 class="fw-bold" id="platformModalTitle">Gestionar Usuario de Red</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <form id="platformUserForm">
+                    <input type="hidden" name="id" id="platformUserId">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Nombre Completo</label>
+                        <input type="text" name="name" class="form-control rounded-3" placeholder="Ej: Juan Pérez" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Email de Microsoft 365 (UPN)</label>
+                        <input type="email" name="email" class="form-control rounded-3" placeholder="usuario@empresa.com" required>
+                        <div class="form-text small">Debe coincidir exactamente con su login de Microsoft.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Rol en el Sistema</label>
+                        <select name="role" class="form-select rounded-3">
+                            <option value="VIEWER">VIEWER (Solo lectura)</option>
+                            <option value="ADMIN">ADMIN (Gestión de Clientes)</option>
+                            <option value="SUPERADMIN">SUPERADMIN (Acceso total)</option>
+                        </select>
+                    </div>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" name="is_active" id="userActiveToggle" checked>
+                        <label class="form-check-label small" for="userActiveToggle">Usuario Activo</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-0 p-4 pt-0">
+                <button type="button" class="btn btn-light rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary rounded-3" onclick="savePlatformUser()">Guardar Cambios</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const platformModal = new bootstrap.Modal(document.getElementById('platformUserModal'));
+
+function openPlatformUserModal() {
+    document.getElementById('platformModalTitle').innerText = 'Nuevo Usuario de Red';
+    document.getElementById('platformUserForm').reset();
+    document.getElementById('platformUserId').value = '';
+    document.getElementById('userActiveToggle').checked = true;
+    platformModal.show();
+}
+
+async function editPlatformUser(id) {
+    try {
+        const response = await fetch(`/api/platform-users/${id}`);
+        const data = await response.json();
+        
+        document.getElementById('platformModalTitle').innerText = 'Editar Usuario';
+        document.getElementById('platformUserId').value = data.id;
+        document.querySelector('[name="name"]').value = data.name;
+        document.querySelector('[name="email"]').value = data.email;
+        document.querySelector('[name="role"]').value = data.role;
+        document.getElementById('userActiveToggle').checked = data.is_active;
+        
+        platformModal.show();
+    } catch (error) {
+        alert('Error al cargar datos');
+    }
+}
+
+async function savePlatformUser() {
+    const form = document.getElementById('platformUserForm');
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData.entries());
+    data.is_active = document.getElementById('userActiveToggle').checked;
+
+    try {
+        const response = await fetch('/api/platform-users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+            location.reload();
+        } else {
+            const err = await response.json();
+            alert('Error: ' + (err.detail || 'No se pudo guardar'));
+        }
+    } catch (error) {
+        alert('Error de conexión');
+    }
+}
+
+async function deletePlatformUser(id, name) {
+    if (!confirm(`¿Deseas revocar el acceso a "${name}"?`)) return;
+    
+    try {
+        const response = await fetch(`/api/platform-users/${id}`, { method: 'DELETE' });
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Error al eliminar');
+        }
+    } catch (error) {
+        alert('Error de conexión');
+    }
+}
+</script>
+{% endblock %}

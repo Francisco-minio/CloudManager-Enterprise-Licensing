@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard | CloudManager{% endblock %}
+
+{% block content %}
+<div class="animate-fade">
+    <div class="d-flex justify-content-between align-items-end mb-5">
+        <div>
+            <h1 class="fw-bold mb-1">Global Overview</h1>
+            <p class="text-secondary mb-0">Monitorización de tenants y métricas de licenciamiento</p>
+        </div>
+        {% if current_user.role in ['SUPERADMIN', 'ADMIN'] %}
+        <button class="btn btn-primary" onclick="openCreateModal()">
+            <i class="bi bi-plus-circle me-2"></i> Añadir Cliente
+        </button>
+        {% endif %}
+    </div>
+
+    <!-- Metrics Grid -->
+    <div class="row g-4 mb-5">
+        <div class="col-md-4">
+            <div class="card p-4 border-0" style="background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%); color: white;">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <p class="mb-1 opacity-75 fw-medium">Usuarios Totales</p>
+                        <h1 class="mb-0 fw-bold">{{ total_users }}</h1>
+                    </div>
+                    <div class="bg-white bg-opacity-20 rounded-4 p-3" style="backdrop-filter: blur(5px);">
+                        <i class="bi bi-people-fill fs-3"></i>
+                    </div>
+                </div>
+                <div class="mt-4 pt-2 border-top border-white border-opacity-10">
+                    <small><i class="bi bi-arrow-up-circle me-1"></i> <span class="fw-bold">+2.4%</span> vs mes anterior</small>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card p-4 bg-white">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <p class="mb-1 text-secondary fw-medium">Clientes Activos</p>
+                        <h1 class="mb-0 fw-bold">{{ tenants|length }}</h1>
+                    </div>
+                    <div class="bg-primary bg-opacity-10 rounded-4 p-3 text-primary">
+                        <i class="bi bi-building-fill fs-3"></i>
+                    </div>
+                </div>
+                <div class="mt-4 pt-2 border-top border-light">
+                    <small class="text-success fw-bold"><i class="bi bi-check-circle-fill me-1"></i> Salud del Sistema: 100%</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card p-4 bg-white">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <p class="mb-1 text-secondary fw-medium">Alertas de Sync</p>
+                        <h1 class="mb-0 fw-bold text-danger">0</h1>
+                    </div>
+                    <div class="bg-danger bg-opacity-10 rounded-4 p-3 text-danger">
+                        <i class="bi bi-exclamation-octagon-fill fs-3"></i>
+                    </div>
+                </div>
+                <div class="mt-4 pt-2 border-top border-light">
+                    <small class="text-muted">Último escaneo automático: <span class="fw-bold">Hace 5m</span></small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tenants Table -->
+    <div class="mb-4 d-flex align-items-center justify-content-between">
+        <h4 class="fw-bold mb-0">Tenants de Clientes</h4>
+        <div class="dropdown">
+            <button class="btn btn-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                Filtrar por Status
+            </button>
+            <ul class="dropdown-menu">
+                <li><a class="dropdown-item" href="#">Todos</a></li>
+                <li><a class="dropdown-item" href="#">Activos</a></li>
+                <li><a class="dropdown-item" href="#">Inactivos</a></li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="card p-0 overflow-hidden border-0 bg-transparent">
+        <table class="table table-premium align-middle">
+            <thead>
+                <tr class="text-secondary small text-uppercase fw-bold" style="background: transparent !important; box-shadow: none !important;">
+                    <th class="ps-4">Compañía</th>
+                    <th>ID del Directorio</th>
+                    <th>Estado</th>
+
+                    <th>Última Sincronización</th>
+                    <th class="text-end pe-4">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if not tenants %}
+                <tr class="bg-white">
+                    <td colspan="5" class="text-center py-5">
+                        <div class="opacity-30 mb-3"><i class="bi bi-clipboard-x fs-1"></i></div>
+                        <p class="text-secondary mb-0">No hay clientes registrados en el sistema</p>
+                        <button class="btn btn-outline-primary btn-sm mt-3" data-bs-toggle="modal" data-bs-target="#addTenantModal">Añadir el primero</button>
+                    </td>
+                </tr>
+                {% endif %}
+                {% for tenant in tenants %}
+                <tr>
+                    <td class="ps-4">
+                        <div class="d-flex align-items-center">
+                            <div class="bg-light p-2 rounded-3 me-3">
+                                <i class="bi bi-building fs-5 text-primary"></i>
+                            </div>
+                            <div>
+                                <div class="fw-bold">{{ tenant.name }}</div>
+                                <div class="text-muted small">ID Local: {{ tenant.id.hex[:6] }}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td><small class="text-secondary fw-semibold font-monospace">{{ tenant.tenant_id[:13] }}...</small></td>
+                    <td>
+                        {% if tenant.is_active %}
+                        <span class="badge-soft text-success bg-success bg-opacity-10">Activo</span>
+                        {% else %}
+                        <span class="badge-soft text-danger bg-danger bg-opacity-10">Inactivo</span>
+                        {% endif %}
+                    </td>
+
+                    <td>
+                        <div class="d-flex align-items-center text-muted small">
+                            <i class="bi bi-clock-history me-2"></i>
+                            {{ tenant.last_sync.strftime('%H:%M, %d %b') if tenant.last_sync else 'Nunca' }}
+                        </div>
+                    </td>
+                    <td class="text-end pe-4">
+                        <a href="/tenant/{{ tenant.id }}" class="btn btn-outline-secondary btn-sm rounded-3 me-1" title="Ver Detalle">
+                            <i class="bi bi-eye"></i>
+                        </a>
+                        
+                        {% if current_user.role in ['SUPERADMIN', 'ADMIN'] %}
+                        <button class="btn btn-primary btn-sm rounded-3 me-1" onclick="syncTenant('{{ tenant.tenant_id }}')" title="Forzar Sincronización">
+                            <i class="bi bi-arrow-repeat"></i>
+                        </button>
+                        <button class="btn btn-light btn-sm rounded-3" type="button" data-bs-toggle="dropdown" title="Opciones Administrativas">
+                            <i class="bi bi-three-dots"></i>
+                        </button>
+                        <ul class="dropdown-menu shadow border-0 rounded-4">
+                            <li><a class="dropdown-item py-2" href="javascript:void(0)" onclick="openEditModal('{{ tenant.id }}')"><i class="bi bi-pencil me-2 text-primary"></i> Editar</a></li>
+                            <li><a class="dropdown-item py-2" href="javascript:void(0)" onclick="toggleTenant('{{ tenant.id }}')"><i class="bi bi-power me-2 text-warning"></i> {{ 'Desactivar' if tenant.is_active else 'Activar' }}</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item py-2 text-danger" href="javascript:void(0)" onclick="deleteTenant('{{ tenant.id }}', '{{ tenant.name }}')"><i class="bi bi-trash me-2"></i> Eliminar</a></li>
+                        </ul>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal Añadir Tenant -->
+<div class="modal fade" id="addTenantModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 24px;">
+            <div class="modal-header border-0 p-4 pb-0">
+                <h5 class="fw-bold" id="modalTitle">Registrar Nuevo Cliente</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <p class="text-secondary small mb-4">Ingresa las credenciales de la App Registration de Azure para iniciar la supervisión.</p>
+                <form id="addTenantForm">
+                    <input type="hidden" name="id" id="tenantIdInput">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Nombre del Cliente</label>
+                        <input type="text" name="name" class="form-control rounded-3" placeholder="Ej: Microsoft Chile" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Azure Tenant ID</label>
+                        <input type="text" name="tenant_id" class="form-control rounded-3 font-monospace" placeholder="00000000-0000-..." required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Client ID (App ID)</label>
+                        <input type="text" name="client_id" class="form-control rounded-3 font-monospace" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Client Secret (Valor)</label>
+                        <input type="password" name="client_secret" class="form-control rounded-3" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-0 p-4 pt-0">
+                <button type="button" class="btn btn-light rounded-3" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary rounded-3" onclick="submitNewTenant()">Guardar Cliente</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function syncTenant(tenantId) {
+    const btn = event.currentTarget;
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>';
+    
+    try {
+        const response = await fetch(`/sync/${tenantId}`, { method: 'POST' });
+        const data = await response.json();
+        // Usar Toast de Bootstrap en vez de alert sería mejor, pero para ahora:
+        alert(data.message);
+        location.reload();
+    } catch (error) {
+        alert('Error en la sincronización');
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
+}
+
+async function submitNewTenant() {
+    const form = document.getElementById('addTenantForm');
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData.entries());
+    const btn = event.currentTarget;
+    const originalText = btn.innerHTML;
+    
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Guardando...';
+    
+    try {
+        const response = await fetch('/tenants/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            location.reload();
+        } else {
+            const err = await response.json();
+            alert('Error: ' + err.detail);
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    } catch (error) {
+        alert('Error de conexión');
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+async function openCreateModal() {
+    document.getElementById('modalTitle').innerText = 'Registrar Nuevo Cliente';
+    document.getElementById('addTenantForm').reset();
+    document.getElementById('tenantIdInput').value = '';
+    const modal = new bootstrap.Modal(document.getElementById('addTenantModal'));
+    modal.show();
+}
+
+async function openEditModal(id) {
+    try {
+        const response = await fetch(`/api/tenants/${id}`);
+        const data = await response.json();
+        
+        document.getElementById('modalTitle').innerText = 'Editar Cliente';
+        document.getElementById('tenantIdInput').value = data.id;
+        document.querySelector('[name="name"]').value = data.name;
+        document.querySelector('[name="tenant_id"]').value = data.tenant_id;
+        document.querySelector('[name="client_id"]').value = data.client_id;
+        document.querySelector('[name="client_secret"]').value = ''; // No cargar el secreto por seguridad
+        document.querySelector('[name="client_secret"]').placeholder = '(Dejar en blanco para no cambiar)';
+        
+        const modal = new bootstrap.Modal(document.getElementById('addTenantModal'));
+        modal.show();
+    } catch (error) {
+        alert('Error al cargar datos');
+    }
+}
+
+async function deleteTenant(id, name) {
+    if (!confirm(`¿Estás seguro de que deseas eliminar al cliente "${name}"? Esta acción borrará todos sus usuarios y licencias.`)) return;
+    
+    try {
+        const response = await fetch(`/tenants/delete/${id}`, { method: 'POST' });
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Error al eliminar');
+        }
+    } catch (error) {
+        alert('Error de conexión');
+    }
+}
+
+async function toggleTenant(id) {
+    try {
+        const response = await fetch(`/tenants/toggle/${id}`, { method: 'POST' });
+        if (response.ok) {
+            location.reload();
+        }
+    } catch (error) {
+        alert('Error de conexión');
+    }
+}
+</script>
+{% endblock %}

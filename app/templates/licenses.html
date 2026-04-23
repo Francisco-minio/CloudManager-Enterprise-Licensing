@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Inventario de Licencias | 365 License Manager{% endblock %}
+
+{% block content %}
+<header class="d-flex justify-content-between align-items-center mb-5">
+    <div>
+        <h2 class="fw-bold">Inventario de Licencias</h2>
+        <p class="text-secondary">Estado actual de suscripciones Microsoft 365 y dominios asociados</p>
+    </div>
+    <div class="col-md-3">
+        <label class="form-label small fw-bold text-secondary">Filtrar por Cliente</label>
+        <select class="form-select border-0 shadow-sm" onchange="window.location.href='/licenses?tenant_id=' + this.value">
+            <option value="">Todos los Clientes</option>
+            {% for t in tenants %}
+            <option value="{{ t.tenant_id }}" {{ 'selected' if t.tenant_id == selected_tenant }}>{{ t.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+</header>
+
+<div class="card">
+    <div class="card-header bg-white py-3 border-0">
+        <h5 class="mb-0 fw-bold">Listado de Licencias</h5>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="bg-light">
+                <tr>
+                    <th class="ps-4">Nombre de Licencia</th>
+                    <th>Dominios con esta licencia</th>
+                    <th>Cliente</th>
+                    <th>Asignadas / Total</th>
+                    <th class="pe-4">Uso %</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in licenses_data %}
+                <tr>
+                    <td class="ps-4">
+                        <div class="d-flex align-items-center">
+                            <div class="bg-warning bg-opacity-10 p-2 rounded me-3 text-warning">
+                                <i class="fas fa-certificate"></i>
+                            </div>
+                            <div>
+                                <div class="fw-bold text-dark">{{ item.obj.sku_part_number | friendly_name }}</div>
+                                <div class="text-muted extra-small" style="font-size: 0.75rem;">SKU: {{ item.obj.sku_part_number }}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="d-flex flex-wrap gap-1">
+                            {% if item.domains %}
+                                {% for domain in item.domains %}
+                                <span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25">
+                                    {{ domain }}
+                                </span>
+                                {% endfor %}
+                            {% else %}
+                                <span class="text-muted small">Sin asignar</span>
+                            {% endif %}
+                        </div>
+                    </td>
+                    <td><span class="badge bg-light text-dark border">{{ item.obj.tenant.name }}</span></td>
+                    <td>
+                        <span class="fw-semibold">{{ item.obj.consumed_units }}</span>
+                        <span class="text-muted"> / {{ item.obj.total_units }}</span>
+                    </td>
+                    <td class="pe-4">
+                        {% set percent = (item.obj.consumed_units / item.obj.total_units * 100) if item.obj.total_units > 0 else 0 %}
+                        <div class="d-flex align-items-center" style="min-width: 120px;">
+                            <div class="progress w-100 me-2" style="height: 6px;">
+                                <div class="progress-bar {{ 'bg-success' if percent < 80 else 'bg-danger' if percent > 95 else 'bg-warning' }}" 
+                                     role="progressbar" style="width: {{ percent }}%"></div>
+                            </div>
+                            <small class="fw-bold">{{ percent|round }}%</small>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

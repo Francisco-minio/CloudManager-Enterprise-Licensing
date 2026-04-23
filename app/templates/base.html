@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}365 License Manager{% endblock %}</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- CSS Dependencies -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --secondary: #64748b;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --dark: #0f172a;
+            --light: #f8fafc;
+            --sidebar-width: 280px;
+            --glass-bg: rgba(255, 255, 255, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.3);
+        }
+
+        body {
+            background-color: #f1f5f9;
+            font-family: 'Outfit', sans-serif;
+            color: var(--dark);
+            overflow-x: hidden;
+        }
+
+        /* Sidebar Glassmorphism */
+        .sidebar {
+            height: 100vh;
+            background: linear-gradient(180deg, #1e1b4b 0%, #0f172a 100%);
+            color: white;
+            position: fixed;
+            width: var(--sidebar-width);
+            z-index: 1000;
+            box-shadow: 4px 0 24px rgba(0,0,0,0.1);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .sidebar-brand {
+            padding: 2.5rem 2rem;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .sidebar-brand .logo-icon {
+            background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+
+        .nav-link {
+            color: rgba(255,255,255,0.6);
+            padding: 0.8rem 1.5rem;
+            margin: 0.2rem 1.2rem;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+
+        .nav-link i { font-size: 1.1rem; }
+
+        .nav-link:hover {
+            color: white;
+            background: rgba(255,255,255,0.05);
+            transform: translateX(5px);
+        }
+
+        .nav-link.active {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.35);
+        }
+
+        /* Main Content Area */
+        .main-content {
+            margin-left: var(--sidebar-width);
+            padding: 2rem 3rem;
+            min-height: 100vh;
+        }
+
+        /* Premium Cards */
+        .card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.04);
+            transition: all 0.3s ease;
+        }
+
+        .card:hover { transform: translateY(-3px); box-shadow: 0 20px 40px -10px rgba(0,0,0,0.08); }
+
+        .btn-primary {
+            background: var(--primary);
+            border: none;
+            padding: 0.6rem 1.5rem;
+            border-radius: 12px;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+            transform: translateY(-1px);
+            box-shadow: 0 8px 20px rgba(99, 102, 241, 0.3);
+        }
+
+        /* Table Design */
+        .table-premium {
+            border-collapse: separate;
+            border-spacing: 0 8px;
+        }
+
+        .table-premium tr {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+            transition: all 0.2s ease;
+        }
+
+        .table-premium td {
+            padding: 1.2rem 1rem;
+            border: none;
+        }
+
+        .table-premium td:first-child { border-radius: 12px 0 0 12px; }
+        .table-premium td:last-child { border-radius: 0 12px 12px 0; }
+
+        .badge-soft {
+            padding: 0.5rem 1rem;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+
+        /* Topbar Search */
+        .search-bar {
+            background: rgba(255,255,255,0.7);
+            border: 1px solid rgba(0,0,0,0.05);
+            border-radius: 14px;
+            padding: 0.6rem 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 350px;
+        }
+
+        .search-bar input {
+            border: none;
+            background: transparent;
+            outline: none;
+            width: 100%;
+            font-size: 0.9rem;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .animate-fade { animation: fadeIn 0.5s ease forwards; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar d-none d-md-block">
+    <div class="sidebar-brand">
+        <div class="logo-icon text-white">
+            <i class="fab fa-microsoft fa-lg"></i>
+        </div>
+        <div>
+            <h5 class="mb-0 fw-bold">CloudManager</h5>
+            <small class="opacity-50">Enterprise Licensing</small>
+        </div>
+    </div>
+
+    <nav class="nav flex-column mt-4">
+        <a class="nav-link {{ 'active' if request.url.path == '/' }}" href="/">
+            <i class="bi bi-grid-1x2-fill"></i> Dashboard
+        </a>
+        <a class="nav-link {{ 'active' if request.url.path == '/users' }}" href="/users">
+            <i class="bi bi-people-fill"></i> Usuarios
+        </a>
+        <a class="nav-link {{ 'active' if '/licenses' in request.url.path }}" href="/licenses">
+            <i class="bi bi-shield-check"></i> Licencias
+        </a>
+        {% if current_user.role == 'SUPERADMIN' %}
+        <a class="nav-link {{ 'active' if request.url.path == '/platform-settings' }}" href="/platform-settings">
+            <i class="bi bi-person-lock"></i> Configuración
+        </a>
+        {% endif %}
+        
+        <div class="mt-auto px-4 pb-5 pt-5">
+            <div class="p-3 rounded-4 bg-white bg-opacity-5">
+                <p class="small opacity-50 mb-3 text-uppercase fw-bold" style="font-size: 0.7rem; letter-spacing: 1px;">Cuenta</p>
+                <a class="nav-link p-0 text-danger" href="/logout"><i class="bi bi-box-arrow-left me-2"></i> Cerrar Sesión</a>
+            </div>
+        </div>
+    </nav>
+</div>
+
+<div class="main-content">
+    <div class="d-flex justify-content-between align-items-center mb-5">
+        <div class="search-bar">
+            <i class="bi bi-search text-secondary"></i>
+            <input type="text" placeholder="Buscar clientes o licencias...">
+        </div>
+        <div class="d-flex align-items-center gap-3">
+            <div class="text-end">
+                <div class="fw-bold mb-0 text-truncate" style="max-width: 150px;">{{ current_user.name }}</div>
+                <small class="text-secondary">{{ current_user.role }}</small>
+            </div>
+            <div class="position-relative">
+                <img src="https://ui-avatars.com/api/?name={{ current_user.name }}&background=6366f1&color=fff&rounded=true" width="48" height="48">
+                <span class="position-absolute bottom-0 end-0 bg-success border border-white rounded-circle" style="width: 12px; height: 12px;"></span>
+            </div>
+        </div>
+    </div>
+
+    {% block content %}{% endblock %}
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

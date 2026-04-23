@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]
+asyncpg
+pydantic-settings
+python-multipart
+msal
+requests
+cryptography
+jinja2
+python-dotenv
+apscheduler
+aiohttp
+itsdangerous
+pandas
+openpyxl
+reportlab

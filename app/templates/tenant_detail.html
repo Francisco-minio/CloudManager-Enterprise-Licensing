@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}Detalle Cliente | {{ tenant.name }}{% endblock %}
+
+{% block content %}
+<div class="animate-fade">
+    <nav aria-label="breadcrumb" class="mb-4">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/" class="text-decoration-none">Dashboard</a></li>
+            <li class="breadcrumb-item active text-secondary">{{ tenant.name }}</li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-center mb-5">
+        <div class="d-flex align-items-center gap-4">
+            <div class="bg-primary p-3 rounded-4 text-white shadow-sm">
+                <i class="bi bi-building fs-2"></i>
+            </div>
+            <div>
+                <h1 class="fw-bold mb-1">{{ tenant.name }}</h1>
+                <p class="text-secondary mb-0">ID: {{ tenant.tenant_id }}</p>
+            </div>
+        </div>
+        <div class="d-flex gap-2">
+            <div class="dropdown">
+                <button class="btn btn-light rounded-3 dropdown-toggle shadow-sm" type="button" data-bs-toggle="dropdown">
+                    <i class="bi bi-download me-2"></i> Exportar
+                </button>
+                <ul class="dropdown-menu border-0 shadow-lg rounded-4">
+                    <li><a class="dropdown-item py-2" href="/licenses/export/excel?tenant_id={{ tenant.tenant_id }}"><i class="bi bi-file-earmark-excel-fill text-success me-2"></i> Excel (.xlsx)</a></li>
+                    <li><a class="dropdown-item py-2" href="/licenses/export/pdf?tenant_id={{ tenant.tenant_id }}"><i class="bi bi-file-earmark-pdf-fill text-danger me-2"></i> PDF (BACKUPCODE)</a></li>
+                </ul>
+            </div>
+            {% if current_user.role in ['SUPERADMIN', 'ADMIN'] %}
+            <button class="btn btn-primary rounded-3 shadow-sm" onclick="syncTenant('{{ tenant.tenant_id }}')">
+                <i class="bi bi-arrow-repeat me-2"></i> Sincronizar Ahora
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="row g-4 mb-5">
+        <div class="col-md-3">
+            <div class="card p-4 border-0">
+                <p class="text-secondary small fw-bold text-uppercase mb-2">Licencias Disponibles</p>
+                <h3 class="fw-bold mb-0">{{ tenant.licenses|length }}</h3>
+                <div class="mt-2 text-success small">
+                    <i class="bi bi-check-circle me-1"></i> Configurado
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card p-4 border-0">
+                <p class="text-secondary small fw-bold text-uppercase mb-2">Usuarios en DB</p>
+                <h3 class="fw-bold mb-0">{{ tenant.users|length }}</h3>
+                <div class="mt-2 text-secondary small">
+                    Sync completada {{ tenant.last_sync.strftime('%H:%M') if tenant.last_sync else 'N/A' }}
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card p-4 border-0">
+                <p class="text-secondary small fw-bold text-uppercase mb-2">Status Azure AD</p>
+                <h3 class="fw-bold mb-0">
+                    {% if tenant.is_active %}
+                    <span class="text-success">Conectado</span>
+                    {% else %}
+                    <span class="text-danger">Error</span>
+                    {% endif %}
+                </h3>
+                <div class="mt-2 text-secondary small">API v1.0 / Graph</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabs Content -->
+    <ul class="nav nav-tabs border-0 mb-4 gap-2" id="tenantTabs" role="tablist">
+        <li class="nav-item">
+            <button class="btn btn-light active rounded-pill px-4" data-bs-toggle="tab" data-bs-target="#licenses">Inventario de Licencias</button>
+        </li>
+        <li class="nav-item">
+            <button class="btn btn-light rounded-pill px-4" data-bs-toggle="tab" data-bs-target="#sync-logs">Historial de Sync</button>
+        </li>
+    </ul>
+
+    <div class="tab-content" id="tenantTabsContent">
+        <!-- Licenses Tab -->
+        <div class="tab-pane fade show active" id="licenses">
+            <div class="mb-4 d-flex justify-content-between align-items-center">
+                <h5 class="fw-bold mb-0 text-secondary">Inventario Activo</h5>
+                <div class="form-check form-switch col-auto">
+                    <input class="form-check-input" type="checkbox" id="filterFree" checked onchange="toggleFreeLicenses()">
+                    <label class="form-check-label small text-secondary" for="filterFree">Ocultar licencias Free/Trial</label>
+                </div>
+            </div>
+            <div class="card border-0 p-0 overflow-hidden bg-transparent">
+                <table class="table table-premium align-middle" id="licensesTable">
+                    <thead>
+                        <tr class="text-secondary small text-uppercase fw-bold">
+                            <th class="ps-4">Producto</th>
+                            <th>ID Producto</th>
+                            <th>Uso</th>
+                            <th>Unidades</th>
+                            <th class="text-end pe-4">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for license in tenant.licenses %}
+                        <tr class="{{ 'license-free' if license.sku_part_number | is_free else 'license-paid' }}" 
+                            style="{{ 'display: none;' if license.sku_part_number | is_free else '' }}">
+                            <td class="ps-4">
+                                <div class="fw-bold">{{ license.sku_part_number | friendly_name }}</div>
+                                <div class="text-muted small">{{ license.sku_part_number }}</div>
+                            </td>
+                            <td><code class="small">{{ license.sku_id[:8] }}...</code></td>
+                            <td>
+                                <div class="progress" style="height: 6px; width: 100px;">
+                                    {% set percent = (license.consumed_units / license.total_units * 100) if license.total_units > 0 else 0 %}
+                                    <div class="progress-bar bg-{{ 'danger' if percent > 90 else 'primary' }}" style="width: {{ percent }}%"></div>
+                                </div>
+                            </td>
+                            <td><span class="fw-bold">{{ license.consumed_units }}</span> / {{ license.total_units }}</td>
+                            <td class="text-end pe-4">
+                                <span class="badge-soft {{ 'text-success bg-success' if license.total_units > license.consumed_units else 'text-warning bg-warning' }} bg-opacity-10">
+                                    {{ 'Disponible' if license.total_units > license.consumed_units else 'Agotada' }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Sync Logs Tab -->
+        <div class="tab-pane fade" id="sync-logs">
+            <div class="card border-0 p-4">
+                <div class="list-group list-group-flush">
+                    {% for log in tenant.sync_logs | reverse %}
+                    <div class="list-group-item px-0 py-3 border-0 border-bottom">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-pill p-2 {{ 'bg-success' if log.status == 'SUCCESS' else 'bg-danger' }} bg-opacity-10 text-{{ 'success' if log.status == 'SUCCESS' else 'danger' }}">
+                                    <i class="bi bi-{{ 'check-circle' if log.status == 'SUCCESS' else 'exclamation-circle' }}"></i>
+                                </div>
+                                <div>
+                                    <h6 class="mb-0 fw-bold">Sincronización {{ log.status }}</h6>
+                                    <small class="text-secondary">{{ log.start_time.strftime('%d %b %Y, %H:%M:%S') if log.start_time else 'F. Inicia Desconocida' }}</small>
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                <div class="small fw-bold">{{ log.users_processed }} usuarios</div>
+                                <div class="small text-muted">
+                                    {% if log.start_time and log.end_time %}
+                                        {{ ((log.end_time - log.start_time).total_seconds() | round(1)) }} segs
+                                    {% elif not log.end_time %}
+                                        En curso
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% if log.details %}
+                        <div class="mt-2 small text-danger bg-danger bg-opacity-5 p-2 rounded">
+                            {{ log.details }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function syncTenant(tenantId) {
+    // Reutilizar la lógica de main dashboard si es posible o definirla aquí
+    const btn = event.currentTarget;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Sincronizando...';
+    try {
+        const response = await fetch(`/sync/${tenantId}`, { method: 'POST' });
+        const data = await response.json();
+        location.reload();
+    } catch (error) {
+        alert('Error en sync');
+        btn.disabled = false;
+        btn.innerHTML = 'Reintentar';
+    }
+}
+
+function toggleFreeLicenses() {
+    const hide = document.getElementById('filterFree').checked;
+    const freeLicenses = document.querySelectorAll('.license-free');
+    freeLicenses.forEach(el => {
+        el.style.display = hide ? 'none' : 'table-row';
+    });
+}
+</script>
+{% endblock %}

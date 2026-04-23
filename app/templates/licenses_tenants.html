@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Inventario por Cliente | CloudManager{% endblock %}
+
+{% block content %}
+<div class="animate-fade">
+    <header class="mb-5 d-flex justify-content-between align-items-end">
+        <div>
+            <h1 class="fw-bold mb-1">Directorio de Auditoría</h1>
+            <p class="text-secondary mb-0">Selecciona una organización para gestionar sus activos de licenciamiento</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="/licenses/export/excel" class="btn btn-light rounded-3 shadow-sm border-0">
+                <i class="bi bi-file-earmark-excel-fill text-success me-2"></i> Exportar Excel
+            </a>
+            <a href="/licenses/export/pdf" class="btn btn-light rounded-3 shadow-sm border-0">
+                <i class="bi bi-file-earmark-pdf-fill text-danger me-2"></i> Exportar PDF (BACKUPCODE)
+            </a>
+        </div>
+    </header>
+
+    <div class="row g-4">
+        {% for t in tenants %}
+        <div class="col-md-4">
+            <div class="card p-0 border-0 overflow-hidden h-100">
+                <div class="p-4">
+                    <div class="d-flex align-items-center mb-4">
+                        <div class="bg-primary bg-opacity-10 p-3 rounded-4 me-3 text-primary">
+                            <i class="bi bi-folder-fill fs-4"></i>
+                        </div>
+                        <div>
+                            <h5 class="fw-bold mb-0">{{ t.name }}</h5>
+                            <small class="text-secondary">Conectado vía Graph API</small>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-light rounded-4 p-3 mb-4">
+                        <div class="row text-center">
+                            <div class="col-6 border-end">
+                                <div class="small text-secondary fw-bold text-uppercase" style="font-size: 0.6rem;">Productos</div>
+                                <div class="fw-bold text-dark">{{ t.licenses|length }}</div>
+                            </div>
+                            <div class="col-6">
+                                <div class="small text-secondary fw-bold text-uppercase" style="font-size: 0.6rem;">Status</div>
+                                <div class="fw-bold text-success">Healthy</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="small text-secondary mb-3 d-flex align-items-center">
+                        <i class="bi bi-calendar-event me-2"></i>
+                        Efectuado el: <span class="fw-bold text-dark ms-1">{{ t.last_sync.strftime('%d %b, %Y') if t.last_sync else 'Pendiente' }}</span>
+                    </div>
+                </div>
+                <div class="card-footer bg-light border-0 p-3">
+                    <a href="/licenses?tenant_id={{ t.tenant_id }}" class="btn btn-primary w-100 rounded-3">
+                        Auditar Licencias <i class="bi bi-arrow-right-short ms-1"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
