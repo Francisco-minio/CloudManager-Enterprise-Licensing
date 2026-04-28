@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}Configuración de Notificaciones - 365 License Manager{% endblock %}
+
+{% block content %}
+<div class="animate-fade">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold mb-1">Centro de Notificaciones</h2>
+            <p class="text-secondary">Configura los canales de alerta y la frecuencia de avisos de vencimiento.</p>
+        </div>
+        <button type="button" class="btn btn-outline-primary rounded-pill px-4" onclick="testNotifications()">
+            <i class="bi bi-send-check me-2"></i> Enviar Prueba
+        </button>
+    </div>
+
+    <div class="row g-4">
+        <!-- Telegram Config -->
+        <div class="col-md-6">
+            <div class="card h-100 border-0 shadow-sm p-4 rounded-4">
+                <div class="d-flex align-items-center gap-3 mb-4">
+                    <div class="bg-info bg-opacity-10 p-3 rounded-4 text-info">
+                        <i class="bi bi-telegram fs-3"></i>
+                    </div>
+                    <div>
+                        <h5 class="fw-bold mb-0">Telegram Bot</h5>
+                        <small class="text-secondary">Recibe alertas instantáneas en tu móvil.</small>
+                    </div>
+                    <div class="form-check form-switch ms-auto">
+                        <input class="form-check-input" type="checkbox" id="tgEnabled" {{ 'checked' if config.telegram_enabled else '' }}>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Bot Token</label>
+                    <input type="password" id="tgToken" class="form-control rounded-3" value="{{ config.telegram_token or '' }}" placeholder="123456789:ABCDefgh...">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Chat ID</label>
+                    <input type="text" id="tgChatId" class="form-control rounded-3" value="{{ config.telegram_chat_id or '' }}" placeholder="Ej: -100123456789">
+                    <div class="form-text x-small">Puedes obtenerlo enviando un mensaje a @userinfobot o usando un bot de logs.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Email Config -->
+        <div class="col-md-6">
+            <div class="card h-100 border-0 shadow-sm p-4 rounded-4">
+                <div class="d-flex align-items-center gap-3 mb-4">
+                    <div class="bg-primary bg-opacity-10 p-3 rounded-4 text-primary">
+                        <i class="bi bi-envelope-at fs-3"></i>
+                    </div>
+                    <div>
+                        <h5 class="fw-bold mb-0">Correo SMTP</h5>
+                        <small class="text-secondary">Envío formal de reportes y avisos.</small>
+                    </div>
+                    <div class="form-check form-switch ms-auto">
+                        <input class="form-check-input" type="checkbox" id="emailEnabled" {{ 'checked' if config.email_enabled else '' }}>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-8 mb-3">
+                        <label class="form-label small fw-bold">Servidor SMTP</label>
+                        <input type="text" id="smtpHost" class="form-control rounded-3" value="{{ config.smtp_host or '' }}" placeholder="smtp.gmail.com">
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label small fw-bold">Puerto</label>
+                        <input type="number" id="smtpPort" class="form-control rounded-3" value="{{ config.smtp_port or 587 }}">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Usuario (Email)</label>
+                    <input type="text" id="smtpUser" class="form-control rounded-3" value="{{ config.smtp_user or '' }}" placeholder="alertas@empresa.com">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Contraseña</label>
+                    <input type="password" id="smtpPass" class="form-control rounded-3" placeholder="••••••••">
+                    <div class="form-text x-small text-warning">Dejar en blanco para no cambiar la actual.</div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Email Remitente (From)</label>
+                    <input type="text" id="emailFrom" class="form-control rounded-3" value="{{ config.email_from or '' }}" placeholder="License Manager <no-reply@empresa.com>">
+                </div>
+            </div>
+        </div>
+
+        <!-- Frequency Config -->
+        <div class="col-12">
+            <div class="card border-0 shadow-sm p-4 rounded-4">
+                <h5 class="fw-bold mb-3"><i class="bi bi-clock-history me-2"></i>Frecuencia y Modalidades</h5>
+                <div class="row align-items-end">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label small fw-bold">Días antes del vencimiento para notificar</label>
+                        <input type="text" id="notifyDays" class="form-control rounded-3" value="{{ config.notify_days_before or '30,15,5' }}" placeholder="30, 15, 5">
+                        <div class="form-text small">Separa por comas los días en que deseas recibir alertas (ej: 60, 30, 15, 7, 1, 0).</div>
+                    </div>
+                    <div class="col-md-6 mb-3 text-end">
+                        <button type="button" class="btn btn-primary rounded-pill px-5 shadow-sm" onclick="saveConfig()">
+                            <i class="bi bi-cloud-upload me-2"></i> Guardar Configuración Global
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function saveConfig() {
+    const data = {
+        telegram_enabled: document.getElementById('tgEnabled').checked,
+        telegram_token: document.getElementById('tgToken').value,
+        telegram_chat_id: document.getElementById('tgChatId').value,
+        email_enabled: document.getElementById('emailEnabled').checked,
+        smtp_host: document.getElementById('smtpHost').value,
+        smtp_port: parseInt(document.getElementById('smtpPort').value),
+        smtp_user: document.getElementById('smtpUser').value,
+        smtp_pass: document.getElementById('smtpPass').value || null,
+        email_from: document.getElementById('emailFrom').value,
+        notify_days_before: document.getElementById('notifyDays').value
+    };
+
+    try {
+        const response = await fetch('/api/notifications/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (response.ok) {
+            alert('Configuración guardada correctamente');
+        } else {
+            alert('Error al guardar');
+        }
+    } catch (e) {
+        alert('Error de conexión');
+    }
+}
+
+async function testNotifications() {
+    if (!confirm('Se enviará un mensaje de prueba a los canales activos. ¿Continuar?')) return;
+    try {
+        const response = await fetch('/api/notifications/test', { method: 'POST' });
+        if (response.ok) {
+            alert('Prueba enviada con éxito');
+        } else {
+            const err = await response.json();
+            alert('Error en la prueba: ' + err.detail);
+        }
+    } catch (e) {
+        alert('Error al intentar enviar prueba');
+    }
+}
+</script>
+{% endblock %}

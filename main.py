@@ -15,6 +15,7 @@ from app.services.sync_engine import SyncEngine
 from app.core.license_mapper import get_friendly_name, is_free_license
 from app.core.config import settings, crypto
 from app.core.auth import get_auth_url, get_token_from_code
+from app.services.notification_service import NotificationService
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
 import pandas as pd
@@ -32,13 +33,43 @@ class TenantCreate(BaseModel):
     tenant_id: str
     client_id: str
     client_secret: str | None = None
+    legal_name: str | None = None
+    tax_id: str | None = None
+    contact_email: str | None = None
+    send_notifications: bool = True
 
 class PlatformUserSchema(BaseModel):
     id: str | None = None
     email: str
     name: str | None = None
-    role: str
+    role: str # SUPERADMIN, ADMIN, FINANCE, VIEWER
     is_active: bool = True
+
+class BillingSchema(BaseModel):
+    id: str | None = None
+    tenant_id: str
+    sku_id: str
+    sku_part_number: str | None = None
+    unit_cost: float
+    quantity: int
+    invoice_number: str
+    expiration_date: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    currency: str = "USD"
+    notes: str | None = None
+
+class NotificationConfigSchema(BaseModel):
+    telegram_enabled: bool
+    telegram_token: str | None = None
+    telegram_chat_id: str | None = None
+    email_enabled: bool
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_pass: str | None = None
+    email_from: str | None = None
+    notify_days_before: str = "30,15,5"
 
 # --- Background Tasks ---
 async def scheduled_sync_all():
@@ -55,6 +86,12 @@ async def scheduled_sync_all():
             except Exception:
                 logger.exception(f"Error en sync automático para {t.name}")
 
+async def scheduled_notifications_check():
+    logger.info("Iniciando verificación diaria de vencimientos...")
+    async with async_session() as db:
+        service = NotificationService(db)
+        await service.check_expirations_and_notify()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Crear tablas si no existen
@@ -65,6 +102,7 @@ async def lifespan(app: FastAPI):
     # Startup: Scheduler
     scheduler = AsyncIOScheduler()
     scheduler.add_job(scheduled_sync_all, 'interval', hours=6)
+    scheduler.add_job(scheduled_notifications_check, 'cron', hour=9, minute=0) # Todos los días a las 9 AM
     scheduler.start()
     logger.info("Programador de tareas iniciado (Sync cada 6h)")
     yield
@@ -270,6 +308,10 @@ async def add_tenant(request: Request, data: TenantCreate, db: AsyncSession = De
             tenant.name = data.name
             tenant.tenant_id = data.tenant_id
             tenant.client_id = data.client_id
+            tenant.legal_name = data.legal_name
+            tenant.tax_id = data.tax_id
+            tenant.contact_email = data.contact_email
+            tenant.send_notifications = data.send_notifications
             if data.client_secret:
                 tenant.client_secret_encrypted = crypto.encrypt(data.client_secret)
         else:
@@ -281,7 +323,11 @@ async def add_tenant(request: Request, data: TenantCreate, db: AsyncSession = De
                 name=data.name,
                 tenant_id=data.tenant_id,
                 client_id=data.client_id,
-                client_secret_encrypted=crypto.encrypt(data.client_secret)
+                client_secret_encrypted=crypto.encrypt(data.client_secret),
+                legal_name=data.legal_name,
+                tax_id=data.tax_id,
+                contact_email=data.contact_email,
+                send_notifications=data.send_notifications
             )
             db.add(tenant)
             
@@ -428,7 +474,8 @@ async def tenant_detail(id: str, request: Request, db: AsyncSession = Depends(ge
     stmt = select(Tenant).where(Tenant.id == tenant_uuid).options(
         selectinload(Tenant.licenses).selectinload(License.user_assignments).joinedload(UserLicense.user),
         selectinload(Tenant.users),
-        selectinload(Tenant.sync_logs)
+        selectinload(Tenant.sync_logs),
+        selectinload(Tenant.billing_records)
     )
     res = await db.execute(stmt)
     tenant = res.scalar_one_or_none()
@@ -438,7 +485,8 @@ async def tenant_detail(id: str, request: Request, db: AsyncSession = Depends(ge
         
     return templates.TemplateResponse(request=request, name="tenant_detail.html", context={
         "tenant": tenant,
-        "current_user": user
+        "current_user": user,
+        "now": datetime.utcnow()
     })
 
 @app.get("/licenses/export/excel")
@@ -559,6 +607,147 @@ async def get_tenant_api(id: str, db: AsyncSession = Depends(get_db)):
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+# --- Billing Endpoints ---
+
+@app.post("/api/billing")
+async def save_billing(data: BillingSchema, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.db.models import LicenseBilling
+    user = request.session.get("user")
+    if not user or user.get("role") not in ["ADMIN", "SUPERADMIN", "FINANCE"]:
+        raise HTTPException(status_code=403)
+
+    billing = None
+    if data.id:
+        stmt = select(LicenseBilling).where(LicenseBilling.id == uuid.UUID(data.id))
+        res = await db.execute(stmt)
+        billing = res.scalar_one_or_none()
+    
+    # Parse dates
+    exp_date = None
+    s_date = None
+    e_date = None
+    try:
+        if data.expiration_date: exp_date = datetime.fromisoformat(data.expiration_date.replace("Z", ""))
+        if data.start_date: s_date = datetime.fromisoformat(data.start_date.replace("Z", ""))
+        if data.end_date: e_date = datetime.fromisoformat(data.end_date.replace("Z", ""))
+    except:
+        pass
+
+    if billing:
+        billing.sku_id = data.sku_id
+        billing.sku_part_number = data.sku_part_number
+        billing.unit_cost = data.unit_cost
+        billing.quantity = data.quantity
+        billing.invoice_number = data.invoice_number
+        billing.expiration_date = exp_date
+        billing.start_date = s_date
+        billing.end_date = e_date
+        billing.currency = data.currency
+        billing.notes = data.notes
+    else:
+        billing = LicenseBilling(
+            tenant_id=uuid.UUID(data.tenant_id),
+            sku_id=data.sku_id,
+            sku_part_number=data.sku_part_number,
+            unit_cost=data.unit_cost,
+            quantity=data.quantity,
+            invoice_number=data.invoice_number,
+            expiration_date=exp_date,
+            start_date=s_date,
+            end_date=e_date,
+            currency=data.currency,
+            notes=data.notes
+        )
+        db.add(billing)
+    
+    await db.commit()
+    return {"message": "Registro de facturación guardado"}
+
+@app.delete("/api/billing/{id}")
+async def delete_billing(id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.db.models import LicenseBilling
+    user = request.session.get("user")
+    if not user or user.get("role") not in ["ADMIN", "SUPERADMIN", "FINANCE"]:
+        raise HTTPException(status_code=403)
+    
+    stmt = select(LicenseBilling).where(LicenseBilling.id == uuid.UUID(id))
+    res = await db.execute(stmt)
+    billing = res.scalar_one_or_none()
+    
+    if billing:
+        await db.delete(billing)
+        await db.commit()
+    return {"message": "Registro eliminado"}
+
+# --- Notification Config Endpoints ---
+
+@app.get("/notifications-settings")
+async def notifications_settings_page(request: Request, db: AsyncSession = Depends(get_db)):
+    from app.db.models import NotificationConfig
+    user = request.session.get("user")
+    if not user or user.get("role") != "SUPERADMIN":
+        return RedirectResponse(url="/")
+    
+    stmt = select(NotificationConfig).where(NotificationConfig.id == 1)
+    res = await db.execute(stmt)
+    config = res.scalar_one_or_none()
+    
+    return templates.TemplateResponse(request=request, name="notifications_settings.html", context={
+        "config": config,
+        "current_user": user
+    })
+
+@app.post("/api/notifications/config")
+async def save_notification_config(data: NotificationConfigSchema, request: Request, db: AsyncSession = Depends(get_db)):
+    from app.db.models import NotificationConfig
+    user = request.session.get("user")
+    if not user or user.get("role") != "SUPERADMIN":
+        raise HTTPException(status_code=403)
+
+    stmt = select(NotificationConfig).where(NotificationConfig.id == 1)
+    res = await db.execute(stmt)
+    config = res.scalar_one_or_none()
+    
+    if not config:
+        config = NotificationConfig(id=1)
+        db.add(config)
+    
+    config.telegram_enabled = data.telegram_enabled
+    config.telegram_token = data.telegram_token
+    config.telegram_chat_id = data.telegram_chat_id
+    config.email_enabled = data.email_enabled
+    config.smtp_host = data.smtp_host
+    config.smtp_port = data.smtp_port
+    config.smtp_user = data.smtp_user
+    if data.smtp_pass:
+        config.smtp_pass_encrypted = crypto.encrypt(data.smtp_pass)
+    config.email_from = data.email_from
+    config.notify_days_before = data.notify_days_before
+    
+    await db.commit()
+    return {"message": "Configuración guardada"}
+
+@app.post("/api/notifications/test")
+async def test_notifications(request: Request, db: AsyncSession = Depends(get_db)):
+    user = request.session.get("user")
+    if not user or user.get("role") != "SUPERADMIN":
+        raise HTTPException(status_code=403)
+    
+    service = NotificationService(db)
+    config = await service.get_config()
+    if not config:
+        raise HTTPException(status_code=404, detail="Configuración no encontrada")
+    
+    msg = "<b>✅ PRUEBA DE NOTIFICACIÓN</b>\n\nEste es un mensaje de prueba del sistema 365 License Manager."
+    
+    if config.telegram_enabled:
+        await service.send_telegram(msg, config)
+    
+    if config.email_enabled:
+        await service.send_email("Prueba de Notificación - 365 License Manager", msg, config.smtp_user, config)
+        
+    return {"message": "Notificaciones de prueba enviadas"}
 
 if __name__ == "__main__":
     import uvicorn

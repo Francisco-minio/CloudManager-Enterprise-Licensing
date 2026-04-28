@@ -178,6 +178,87 @@
             font-size: 0.9rem;
         }
 
+        /* Responsive adjustments */
+        .mobile-header {
+            display: none;
+            background: linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%);
+            color: white;
+            padding: 1rem 1.5rem;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 1001;
+        }
+
+        .mobile-header .logo-icon {
+            background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Sidebar Overlay for Mobile */
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0,0,0,0.5);
+            z-index: 999;
+            backdrop-filter: blur(3px);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+                box-shadow: 10px 0 30px rgba(0,0,0,0.5);
+            }
+            .sidebar.mobile-open {
+                transform: translateX(0);
+            }
+            .sidebar-overlay.mobile-open {
+                display: block;
+                opacity: 1;
+            }
+            .main-content {
+                margin-left: 0;
+                padding: 1.5rem 1rem;
+            }
+            .mobile-header {
+                display: flex;
+            }
+            .search-bar {
+                width: 100%;
+                margin-bottom: 1rem;
+            }
+            .top-bar-container {
+                flex-direction: column;
+                align-items: flex-start !important;
+                gap: 1rem;
+            }
+            .top-bar-container > div {
+                width: 100%;
+            }
+            .d-flex.align-items-center.gap-3 {
+                justify-content: space-between;
+            }
+            .table-premium td {
+                padding: 1rem 0.5rem;
+            }
+            h1 {
+                font-size: 1.75rem;
+            }
+        }
+
         /* Animations */
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(20px); }
@@ -189,7 +270,23 @@
 </head>
 <body>
 
-<div class="sidebar d-none d-md-block">
+<!-- Mobile Header -->
+<div class="mobile-header">
+    <div class="d-flex align-items-center gap-2">
+        <div class="logo-icon text-white">
+            <i class="fab fa-microsoft"></i>
+        </div>
+        <h6 class="mb-0 fw-bold">CloudManager</h6>
+    </div>
+    <button class="btn btn-link text-white p-0" onclick="toggleMobileMenu()">
+        <i class="bi bi-list fs-2"></i>
+    </button>
+</div>
+
+<!-- Sidebar Overlay -->
+<div class="sidebar-overlay" onclick="toggleMobileMenu()"></div>
+
+<div class="sidebar">
     <div class="sidebar-brand">
         <div class="logo-icon text-white">
             <i class="fab fa-microsoft fa-lg"></i>
@@ -212,7 +309,10 @@
         </a>
         {% if current_user.role == 'SUPERADMIN' %}
         <a class="nav-link {{ 'active' if request.url.path == '/platform-settings' }}" href="/platform-settings">
-            <i class="bi bi-person-lock"></i> Configuración
+            <i class="bi bi-person-lock"></i> Usuarios Plataforma
+        </a>
+        <a class="nav-link {{ 'active' if request.url.path == '/notifications-settings' }}" href="/notifications-settings">
+            <i class="bi bi-bell-fill"></i> Notificaciones
         </a>
         {% endif %}
         
@@ -226,7 +326,7 @@
 </div>
 
 <div class="main-content">
-    <div class="d-flex justify-content-between align-items-center mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-5 top-bar-container">
         <div class="search-bar">
             <i class="bi bi-search text-secondary"></i>
             <input type="text" placeholder="Buscar clientes o licencias...">
@@ -247,6 +347,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    function toggleMobileMenu() {
+        document.querySelector('.sidebar').classList.toggle('mobile-open');
+        document.querySelector('.sidebar-overlay').classList.toggle('mobile-open');
+    }
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

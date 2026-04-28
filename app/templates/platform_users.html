@@ -14,8 +14,8 @@
         </button>
     </div>
 
-    <div class="card p-0 overflow-hidden border-0 bg-transparent">
-        <table class="table table-premium align-middle">
+    <div class="card p-0 overflow-hidden border-0 bg-transparent table-responsive">
+        <table class="table table-premium align-middle" style="min-width: 800px;">
             <thead>
                 <tr class="text-secondary small text-uppercase fw-bold">
                     <th class="ps-4">Usuario</th>
@@ -39,7 +39,7 @@
                     </td>
                     <td><span class="text-secondary fw-semibold">{{ p_user.email }}</span></td>
                     <td>
-                        <span class="badge {{ 'bg-danger' if p_user.role == 'SUPERADMIN' else 'bg-primary' if p_user.role == 'ADMIN' else 'bg-secondary' }} bg-opacity-10 {{ 'text-danger' if p_user.role == 'SUPERADMIN' else 'text-primary' if p_user.role == 'ADMIN' else 'text-secondary' }} fw-bold">
+                        <span class="badge {{ 'bg-danger' if p_user.role == 'SUPERADMIN' else 'bg-primary' if p_user.role == 'ADMIN' else 'bg-info' if p_user.role == 'FINANCE' else 'bg-secondary' }} bg-opacity-10 {{ 'text-danger' if p_user.role == 'SUPERADMIN' else 'text-primary' if p_user.role == 'ADMIN' else 'text-info' if p_user.role == 'FINANCE' else 'text-secondary' }} fw-bold">
                             {{ p_user.role }}
                         </span>
                     </td>
@@ -92,6 +92,7 @@
                         <label class="form-label small fw-bold">Rol en el Sistema</label>
                         <select name="role" class="form-select rounded-3">
                             <option value="VIEWER">VIEWER (Solo lectura)</option>
+                            <option value="FINANCE">FINANCE (Costos y Facturación)</option>
                             <option value="ADMIN">ADMIN (Gestión de Clientes)</option>
                             <option value="SUPERADMIN">SUPERADMIN (Acceso total)</option>
                         </select>
