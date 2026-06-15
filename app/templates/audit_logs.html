@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block title %}Registro de Auditoría | CloudManager{% endblock %}
+
+{% block content %}
+<div class="animate-fade">
+    <header class="d-flex justify-content-between align-items-end mb-5">
+        <div>
+            <h1 class="fw-bold mb-1">Registro de Auditoría</h1>
+            <p class="text-secondary mb-0">Historial completo de acciones y operaciones realizadas en Microsoft 365</p>
+        </div>
+    </header>
+
+    <!-- Filtros de Auditoría -->
+    <div class="card border-0 shadow-sm p-4 rounded-4 mb-4 bg-white">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-secondary">Filtrar por Organización</label>
+                <select id="filterTenant" class="form-select rounded-3" onchange="filterAuditLogs()">
+                    <option value="">Todas las organizaciones</option>
+                    {% for tenant in tenants %}
+                    <option value="{{ tenant.name | lower }}">{{ tenant.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-secondary">Filtrar por Acción</label>
+                <select id="filterAction" class="form-select rounded-3" onchange="filterAuditLogs()">
+                    <option value="">Todas las acciones</option>
+                    <option value="TOGGLE_STATUS">Cambio de Estado (Habilitar/Bloquear)</option>
+                    <option value="RESET_PASSWORD">Restablecer Clave</option>
+                    <option value="OFFBOARDING">Offboarding Completo</option>
+                    <option value="ASSIGN_LICENSES">Gestión de Licencias</option>
+                    <option value="ADD_MEMBER">Agregar a Grupo</option>
+                    <option value="REMOVE_MEMBER">Remover de Grupo</option>
+                    <option value="CREATE_SHARED_MAILBOX">Crear Buzón Compartido</option>
+                    <option value="ADD_DELEGATE">Agregar Delegado</option>
+                    <option value="REMOVE_DELEGATE">Quitar Delegado</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-secondary">Filtrar por Estado</label>
+                <select id="filterStatus" class="form-select rounded-3" onchange="filterAuditLogs()">
+                    <option value="">Todos</option>
+                    <option value="SUCCESS">Exitoso</option>
+                    <option value="FAILED">Fallido</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small fw-bold text-secondary">Buscar por Operador / Destinatario</label>
+                <div class="input-group">
+                    <span class="input-group-text bg-light border-0"><i class="bi bi-search"></i></span>
+                    <input type="text" id="searchKeyword" class="form-control bg-light border-0 rounded-end-3" placeholder="Correo o UPN..." onkeyup="filterAuditLogs()">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabla de Auditoría -->
+    <div class="card p-0 overflow-hidden border-0 bg-transparent table-responsive">
+        <table class="table table-premium align-middle" id="auditTable" style="min-width: 900px;">
+            <thead>
+                <tr class="text-secondary small text-uppercase fw-bold" style="background: transparent !important; box-shadow: none !important;">
+                    <th class="ps-4">Fecha (UTC)</th>
+                    <th>Organización</th>
+                    <th>Operador</th>
+                    <th>Acción</th>
+                    <th>Destinatario (UPN)</th>
+                    <th>Estado</th>
+                    <th class="pe-4">Detalles</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if not logs %}
+                <tr class="bg-white">
+                    <td colspan="7" class="text-center py-5">
+                        <div class="opacity-30 mb-3"><i class="bi bi-journal-text fs-1"></i></div>
+                        <p class="text-secondary mb-0">No se han registrado acciones de auditoría en el sistema.</p>
+                    </td>
+                </tr>
+                {% endif %}
+                {% for log in logs %}
+                <tr class="audit-row bg-white" 
+                    data-tenant="{{ log.tenant.name | lower if log.tenant else '' }}"
+                    data-action="{{ log.action }}"
+                    data-status="{{ log.status }}"
+                    data-operator="{{ log.operator_email | lower }}"
+                    data-target="{{ log.target_upn | lower if log.target_upn else '' }}">
+                    <td class="ps-4 text-nowrap">
+                        <small class="fw-semibold text-secondary">{{ log.created_at.strftime('%d %b, %H:%M:%S') }}</small>
+                    </td>
+                    <td>
+                        <span class="fw-bold text-dark">{{ log.tenant.name if log.tenant else 'Sistema' }}</span>
+                    </td>
+                    <td>
+                        <small class="text-primary font-monospace">{{ log.operator_email }}</small>
+                    </td>
+                    <td>
+                        <span class="badge bg-secondary bg-opacity-10 text-secondary fw-bold">
+                            {{ log.action }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="small font-monospace">{{ log.target_upn if log.target_upn else '-' }}</span>
+                    </td>
+                    <td>
+                        {% if log.status == 'SUCCESS' %}
+                        <span class="badge bg-success bg-opacity-10 text-success fw-bold"><i class="bi bi-check-circle-fill me-1"></i>Listo</span>
+                        {% else %}
+                        <span class="badge bg-danger bg-opacity-10 text-danger fw-bold"><i class="bi bi-exclamation-circle-fill me-1"></i>Falló</span>
+                        {% endif %}
+                    </td>
+                    <td class="pe-4 text-secondary small">
+                        {{ log.details }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterAuditLogs() {
+    const selTenant = document.getElementById('filterTenant').value;
+    const selAction = document.getElementById('filterAction').value;
+    const selStatus = document.getElementById('filterStatus').value;
+    const keyword = document.getElementById('searchKeyword').value.toLowerCase().trim();
+    
+    const rows = document.querySelectorAll('.audit-row');
+    
+    rows.forEach(row => {
+        const rowTenant = row.getAttribute('data-tenant');
+        const rowAction = row.getAttribute('data-action');
+        const rowStatus = row.getAttribute('data-status');
+        const rowOperator = row.getAttribute('data-operator');
+        const rowTarget = row.getAttribute('data-target');
+        
+        let match = true;
+        
+        if (selTenant && rowTenant !== selTenant) {
+            match = false;
+        }
+        if (selAction && rowAction !== selAction) {
+            match = false;
+        }
+        if (selStatus && rowStatus !== selStatus) {
+            match = false;
+        }
+        if (keyword) {
+            const matchesKeyword = rowOperator.includes(keyword) || rowTarget.includes(keyword);
+            if (!matchesKeyword) {
+                match = false;
+            }
+        }
+        
+        row.style.display = match ? 'table-row' : 'none';
+    });
+}
+</script>
+{% endblock %}

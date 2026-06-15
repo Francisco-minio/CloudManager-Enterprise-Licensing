@@ -143,7 +143,7 @@
         }
 
         .table-premium td {
-            padding: 1.2rem 1rem;
+            padding: 0.6rem 0.8rem;
             border: none;
         }
 
@@ -307,6 +307,12 @@
         <a class="nav-link {{ 'active' if '/licenses' in request.url.path }}" href="/licenses">
             <i class="bi bi-shield-check"></i> Licencias
         </a>
+        <a class="nav-link {{ 'active' if request.url.path == '/audit-logs' }}" href="/audit-logs">
+            <i class="bi bi-journal-text"></i> Auditoría
+        </a>
+        <a class="nav-link {{ 'active' if request.url.path == '/changelog' }}" href="/changelog">
+            <i class="bi bi-file-earmark-text"></i> Log de Cambios
+        </a>
         {% if current_user.role == 'SUPERADMIN' %}
         <a class="nav-link {{ 'active' if request.url.path == '/platform-settings' }}" href="/platform-settings">
             <i class="bi bi-person-lock"></i> Usuarios Plataforma
@@ -329,7 +335,7 @@
     <div class="d-flex justify-content-between align-items-center mb-5 top-bar-container">
         <div class="search-bar">
             <i class="bi bi-search text-secondary"></i>
-            <input type="text" placeholder="Buscar clientes o licencias...">
+            <input type="text" id="globalSearchInput" placeholder="Buscar clientes o licencias..." onkeyup="executeGlobalSearch()">
         </div>
         <div class="d-flex align-items-center gap-3">
             <div class="text-end">
@@ -351,6 +357,168 @@
     function toggleMobileMenu() {
         document.querySelector('.sidebar').classList.toggle('mobile-open');
         document.querySelector('.sidebar-overlay').classList.toggle('mobile-open');
+    }
+
+    function executeGlobalSearch() {
+        const query = document.getElementById('globalSearchInput').value.toLowerCase().trim();
+        const path = window.location.pathname.replace(/\/$/, "");
+        
+        // 1. Dashboard (Main Page)
+        if (path === '/' || path === '') {
+            const rows = document.querySelectorAll('.table-premium tbody tr');
+            rows.forEach(row => {
+                if (row.cells.length < 3) return;
+                const companyName = row.querySelector('.fw-bold')?.innerText.toLowerCase() || '';
+                const tenantId = row.cells[1]?.innerText.toLowerCase() || '';
+                
+                if (companyName.includes(query) || tenantId.includes(query)) {
+                    row.style.display = 'table-row';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+        
+        // 2. Users Page
+        else if (path === '/users') {
+            const headers = document.querySelectorAll('.tenant-header-row');
+            
+            if (query === '') {
+                // Restore default state: show headers, hide user rows, reset icons to right chevron
+                headers.forEach(header => {
+                    header.style.display = 'table-row';
+                    const tenantId = header.getAttribute('data-tenant-id');
+                    const icon = document.getElementById(`icon-${tenantId}`);
+                    if (icon) {
+                        icon.className = 'bi bi-chevron-right text-secondary me-1 transition-transform';
+                    }
+                    const tenantUsers = document.querySelectorAll(`.user-row[data-tenant-id="${tenantId}"]`);
+                    tenantUsers.forEach(row => {
+                        row.style.display = 'none';
+                    });
+                });
+            } else {
+                headers.forEach(header => {
+                    const tenantId = header.getAttribute('data-tenant-id');
+                    const tenantName = header.querySelector('.fw-bold')?.innerText.toLowerCase() || '';
+                    const tenantUsers = document.querySelectorAll(`.user-row[data-tenant-id="${tenantId}"]`);
+                    const icon = document.getElementById(`icon-${tenantId}`);
+                    
+                    const tenantMatches = tenantName.includes(query);
+                    let anyUserMatches = false;
+                    
+                    // Check if any user matches the query using their entire row text
+                    tenantUsers.forEach(row => {
+                        const rowText = row.innerText.toLowerCase();
+                        if (rowText.includes(query)) {
+                            anyUserMatches = true;
+                        }
+                    });
+                    
+                    if (tenantMatches || anyUserMatches) {
+                        header.style.display = 'table-row';
+                        
+                        // Show matching users, or all if tenant matched
+                        tenantUsers.forEach(row => {
+                            if (tenantMatches) {
+                                row.style.display = 'table-row';
+                            } else {
+                                const rowText = row.innerText.toLowerCase();
+                                if (rowText.includes(query)) {
+                                    row.style.display = 'table-row';
+                                } else {
+                                    row.style.display = 'none';
+                                }
+                            }
+                        });
+                        
+                        if (icon) {
+                            icon.className = 'bi bi-chevron-down text-secondary me-1 transition-transform';
+                        }
+                    } else {
+                        header.style.display = 'none';
+                        tenantUsers.forEach(row => {
+                            row.style.display = 'none';
+                        });
+                        if (icon) {
+                            icon.className = 'bi bi-chevron-right text-secondary me-1 transition-transform';
+                        }
+                    }
+                });
+            }
+        }
+        
+        // 3. Licenses Directory / Detail
+        else if (path === '/licenses') {
+            const urlParams = new URLSearchParams(window.location.search);
+            const tenantIdParam = urlParams.get('tenant_id');
+            
+            if (!tenantIdParam) {
+                // Directory cards
+                const cards = document.querySelectorAll('.row.g-4 > .col-md-4');
+                cards.forEach(card => {
+                    const name = card.querySelector('h5')?.innerText.toLowerCase() || '';
+                    if (name.includes(query)) {
+                        card.style.setProperty('display', 'block', 'important');
+                    } else {
+                        card.style.setProperty('display', 'none', 'important');
+                    }
+                });
+            } else {
+                // Detail licenses cards/rows in #licensesList
+                const cards = document.querySelectorAll('#licensesList > .col-md-12');
+                cards.forEach(card => {
+                    const productName = card.querySelector('h5')?.innerText.toLowerCase() || '';
+                    const partNumber = card.querySelector('.text-muted')?.innerText.toLowerCase() || '';
+                    const domains = Array.from(card.querySelectorAll('.badge')).map(b => b.innerText.toLowerCase()).join(' ');
+                    
+                    if (productName.includes(query) || partNumber.includes(query) || domains.includes(query)) {
+                        const filterFreeChecked = document.getElementById('filterFree')?.checked;
+                        const isFree = card.classList.contains('license-free');
+                        if (isFree && filterFreeChecked) {
+                            card.style.display = 'none';
+                        } else {
+                            card.style.display = 'block';
+                        }
+                    } else {
+                        card.style.display = 'none';
+                    }
+                });
+            }
+        }
+        
+        // 4. Tenant Detail Page
+        else if (path.startsWith('/tenant/')) {
+            const activeTab = document.querySelector('.tab-pane.active');
+            if (activeTab) {
+                const rows = activeTab.querySelectorAll('.table-premium tbody tr');
+                rows.forEach(row => {
+                    const text = row.innerText.toLowerCase();
+                    if (text.includes(query)) {
+                        row.style.display = 'table-row';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+            }
+        }
+        
+        // 5. Platform settings Page
+        else if (path === '/platform-settings') {
+            const rows = document.querySelectorAll('.table-premium tbody tr');
+            rows.forEach(row => {
+                if (row.cells.length < 3) return;
+                const name = row.querySelector('.fw-bold')?.innerText.toLowerCase() || '';
+                const email = row.querySelector('.text-secondary')?.innerText.toLowerCase() || '';
+                const role = row.querySelector('.badge')?.innerText.toLowerCase() || '';
+                
+                if (name.includes(query) || email.includes(query) || role.includes(query)) {
+                    row.style.display = 'table-row';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
     }
 </script>
 {% block scripts %}{% endblock %}

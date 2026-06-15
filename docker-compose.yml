@@ -10,7 +10,7 @@ services:
       - POSTGRES_PASSWORD=strong_password_123
       - POSTGRES_DB=365_licenses
     ports:
-      - "5433:5432"
+      - "5435:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -21,7 +21,8 @@ services:
     depends_on:
       - db
     ports:
-      - "8000:8000"
+      - "8001:8000"
+
     env_file:
       - .env
     environment:

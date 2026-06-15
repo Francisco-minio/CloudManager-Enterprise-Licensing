@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+
+{% block title %}Log de Cambios | CloudManager{% endblock %}
+
+{% block content %}
+<div class="animate-fade">
+    <header class="d-flex justify-content-between align-items-end mb-5">
+        <div>
+            <h1 class="fw-bold mb-1">Log de Cambios</h1>
+            <p class="text-secondary mb-0">Historial de actualizaciones y mejoras en el sistema</p>
+        </div>
+    </header>
+
+    <div class="card border-0 shadow-sm p-5 rounded-4 bg-white">
+        <h3 class="fw-bold text-primary mb-4">Versión 2.1.0 (Monitoreo Avanzado, OOF y Alertas)</h3>
+        <p class="text-secondary">Se han implementado con éxito tres nuevas capacidades al panel de administración:</p>
+        
+        <hr class="my-4">
+
+        <h5 class="fw-bold text-dark mb-3"><i class="bi bi-clock-history text-primary me-2"></i> 1. Reporte de Licencias Ociosas</h5>
+        <ul>
+            <li><strong>Optimización de Costos</strong>: Escaneo automatizado de sign-ins en Entra ID de los últimos 30 días para usuarios con licencias de Microsoft 365 asignadas.</li>
+            <li><strong>Interfaz de Reporte</strong>: Listado en caliente de cuentas inactivas o cuentas que nunca han iniciado sesión, permitiendo desasignar licencias subutilizadas.</li>
+        </ul>
+
+        <h5 class="fw-bold text-dark mt-4 mb-3"><i class="bi bi-envelope-heart text-primary me-2"></i> 2. Configuración de Fuera de Oficina (OOF)</h5>
+        <ul>
+            <li><strong>Respuestas Automáticas</strong>: Modificación en tiempo real del estado de auto-respuestas (Desactivado, Siempre Activo, Programado por fecha/hora).</li>
+            <li><strong>Público Externo e Interno</strong>: Formularios dedicados para configurar mensajes diferenciados para remitentes internos y públicos externos (cualquier remitente o contactos únicamente).</li>
+        </ul>
+
+        <h5 class="fw-bold text-dark mt-4 mb-3"><i class="bi bi-bell-fill text-primary me-2"></i> 3. Alertas de Seguridad en Tiempo Real</h5>
+        <ul>
+            <li><strong>Detección de Nuevos Administradores</strong>: Auditoría proactiva en cada ciclo de sincronización de nuevos administradores globales en los tenants de los clientes.</li>
+            <li><strong>Alertas Inmediatas</strong>: Envío automático de notificaciones a través de los canales configurados (Telegram y correo electrónico) ante cualquier asignación detectada.</li>
+        </ul>
+
+        <hr class="my-4">
+
+        <h3 class="fw-bold text-primary mb-4">Versión 2.0.0 (Fase 2 de Implementación)</h3>
+        <p class="text-secondary">Se han implementado con éxito tres capacidades principales al panel de administración:</p>
+        
+        <hr class="my-4">
+
+        <h5 class="fw-bold text-dark mb-3"><i class="bi bi-journal-text text-primary me-2"></i> 1. Panel de Auditoría Visual (Audit Logs)</h5>
+        <ul>
+            <li><strong>Bitácora del Sistema</strong>: Registro persistente en base de datos de cada acción ejecutada (desbloqueo de cuentas, reseteo de claves, offboarding, gestión de delegados).</li>
+            <li><strong>Filtros Avanzados</strong>: Panel interactivo que permite filtrar en tiempo real por Organización, Acción, Estado (Éxito/Fallo) y búsqueda por correo/UPN del operador o destinatario.</li>
+        </ul>
+
+        <h5 class="fw-bold text-dark mt-4 mb-3"><i class="bi bi-envelope-open text-primary me-2"></i> 2. Gestión de Buzones Compartidos (Shared Mailboxes)</h5>
+        <ul>
+            <li><strong>Administración Completa</strong>: Visualización en tiempo real de todos los buzones de tipo compartido en el tenant.</li>
+            <li><strong>Creación de Buzones</strong>: Formulario directo para crear nuevos buzones de correo compartidos indicando nombre, alias y dominio del tenant.</li>
+            <li><strong>Gestión de Delegados</strong>: Modificación instantánea de permisos de <em>Read and Manage (Editor)</em> y <em>Send As (Autor)</em> en caliente (agregar y quitar delegados).</li>
+        </ul>
+
+        <h5 class="fw-bold text-dark mt-4 mb-3"><i class="bi bi-shield-check text-primary me-2"></i> 3. Motor de Cumplimiento de Seguridad (Compliance Engine)</h5>
+        <ul>
+            <li><strong>Evaluación de Entra ID</strong>: Escaneo automatizado de políticas clave de protección del tenant.</li>
+            <li><strong>Indicadores Clave (Score Cards)</strong>:
+                <ul>
+                    <li>MFA Global (Security Defaults)</li>
+                    <li>Políticas de MFA vía Conditional Access</li>
+                    <li>Bloqueo de Autenticación Heredada (Legacy Auth)</li>
+                    <li>Configuración de Expiración de Contraseñas (Password Policies)</li>
+                </ul>
+            </li>
+            <li><strong>Recomendaciones en Caliente</strong>: Alertas dinámicas con acciones sugeridas para corregir vulnerabilidades del tenant.</li>
+        </ul>
+
+        <hr class="my-4">
+        
+        <h4 class="fw-bold text-primary mb-3">Versión 1.1.0 (Fase 1)</h4>
+        <h5 class="fw-bold text-dark mb-3"><i class="bi bi-person-badge text-primary me-2"></i> Inspección Detallada de Perfil de Usuario</h5>
+        <ul>
+            <li>Visualización interactiva y en tiempo real de perfiles de usuario de Microsoft 365, incluyendo grupos, roles de directorio asignados, licencias y manager directo.</li>
+        </ul>
+
+        <hr class="my-4">
+
+        <h4 class="fw-bold text-primary mb-3"><i class="bi bi-terminal-fill me-2"></i> Script de Automatización de Onboarding (PowerShell)</h4>
+        <p class="text-secondary">Para registrar rápidamente un cliente (Tenant) en la plataforma con los permisos requeridos en Azure AD / Entra ID, puedes ejecutar este script en PowerShell como administrador. Automatiza el registro, asignación de roles de API de Microsoft Graph y genera el secreto de cliente.</p>
+        
+        <h6 class="fw-bold text-dark mb-2">Permisos Otorgados por el Script (Tipo Aplicación):</h6>
+        <div class="table-responsive mb-3">
+            <table class="table table-bordered table-sm small">
+                <thead>
+                    <tr class="bg-light">
+                        <th>Permiso</th>
+                        <th>Propósito</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>User.ReadWrite.All</code></td>
+                        <td>Bloqueo/desbloqueo de cuentas, reseteo de contraseñas y lecturas de perfil.</td>
+                    </tr>
+                    <tr>
+                        <td><code>Directory.ReadWrite.All</code></td>
+                        <td>Administración de miembros en grupos de seguridad.</td>
+                    </tr>
+                    <tr>
+                        <td><code>Organization.Read.All</code></td>
+                        <td>Lectura de políticas de expiración de contraseñas organizacionales.</td>
+                    </tr>
+                    <tr>
+                        <td><code>MailboxSettings.ReadWrite</code></td>
+                        <td>Creación de buzones compartidos, delegación de accesos y configuración de respuestas automáticas (Fuera de Oficina / OOF).</td>
+                    </tr>
+                    <tr>
+                        <td><code>Policy.Read.All</code></td>
+                        <td>Auditoría de políticas de conditional access e identity security defaults.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <h6 class="fw-bold text-dark mb-2">Código del Script (PowerShell):</h6>
+        <pre class="bg-light p-3 rounded-3 border text-dark font-monospace" style="font-size: 0.85rem; max-height: 400px; overflow-y: auto;">
+# 1. Conectar al Tenant del Cliente
+Connect-MgGraph -Scopes "Application.ReadWrite.All", "AppRoleAssignment.ReadWrite.All"
+
+$AppName = "CloudManager-EnterpriseLicensing"
+$RequiredPermissions = @(
+    @{ Name = "User.ReadWrite.All"; Id = "741f0c66-ca9a-4c26-850d-8d386c73af46" },
+    @{ Name = "Directory.ReadWrite.All"; Id = "19ec0e23-833e-43d4-9197-0c11ceb699c9" },
+    @{ Name = "Organization.Read.All"; Id = "296ce679-fb92-411a-8e54-3e970105bfe3" },
+    @{ Name = "MailboxSettings.ReadWrite"; Id = "6931bccd-447a-43d1-b442-00a195474933" },
+    @{ Name = "Policy.Read.All"; Id = "246ad9d1-6b70-464a-ad1b-324c4355523a" }
+)
+
+# 2. Crear App Registration
+Write-Host "Creando App Registration..."
+$App = New-MgApplication -DisplayName $AppName -SignInAudience "AzureADMyOrg"
+$Sp = New-MgServicePrincipal -AppId $App.AppId
+
+# 3. Asignar Permisos
+$GraphSp = Get-MgServicePrincipal -Filter "AppId eq '00000003-0000-0000-c000-000000000000'"
+foreach ($Perm in $RequiredPermissions) {
+    $AppRole = $GraphSp.AppRoles | Where-Object { $_.Id -eq $Perm.Id }
+    New-MgServicePrincipalAppRoleAssignment -ServicePrincipalId $Sp.Id -BodyParameter @{
+        PrincipalId = $Sp.Id
+        ResourceId = $GraphSp.Id
+        AppRoleId = $AppRole.Id
+    }
+}
+
+# 4. Generar Secreto
+$Secret = Add-MgApplicationPassword -ApplicationId $App.Id -PasswordCredential @{
+    DisplayName = "CloudManager Secret"
+    EndDateTime = (Get-Date).AddYears(2)
+}
+
+# 5. Mostrar credenciales finales
+Clear-Host
+Write-Host "REGISTRO COMPLETADO"
+Write-Host "Tenant ID: " (Get-MgContext).TenantId
+Write-Host "Client ID: " $App.AppId
+Write-Host "Client Secret: " $Secret.SecretText
+Disconnect-MgGraph
+        </pre>
+    </div>
+</div>
+{% endblock %}

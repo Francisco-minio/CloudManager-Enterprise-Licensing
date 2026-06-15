@@ -80,6 +80,12 @@
             <button class="btn btn-light active rounded-pill px-4" data-bs-toggle="tab" data-bs-target="#licenses">Inventario de Licencias</button>
         </li>
         <li class="nav-item">
+            <button class="btn btn-light rounded-pill px-4" data-bs-toggle="tab" data-bs-target="#users-list-tab">Usuarios ({{ tenant.users|length }})</button>
+        </li>
+        <li class="nav-item">
+            <button class="btn btn-light rounded-pill px-4" data-bs-toggle="tab" data-bs-target="#groups-tab" onclick="loadTenantGroups()">Grupos de Seguridad</button>
+        </li>
+        <li class="nav-item">
             <button class="btn btn-light rounded-pill px-4" data-bs-toggle="tab" data-bs-target="#sync-logs">Historial de Sync</button>
         </li>
         {% if current_user.role in ['SUPERADMIN', 'ADMIN', 'FINANCE'] %}
@@ -88,9 +94,16 @@
         </li>
         {% endif %}
         <li class="nav-item">
+            <button class="btn btn-light rounded-pill px-4" data-bs-toggle="tab" data-bs-target="#shared-mailboxes-tab" onclick="loadSharedMailboxes()">Buzones Compartidos</button>
+        </li>
+        <li class="nav-item">
+            <button class="btn btn-light rounded-pill px-4" data-bs-toggle="tab" data-bs-target="#compliance-tab" onclick="loadComplianceReport()">Cumplimiento y Seguridad</button>
+        </li>
+        <li class="nav-item">
             <button class="btn btn-light rounded-pill px-4" data-bs-toggle="tab" data-bs-target="#profile">Perfil y Configuración</button>
         </li>
     </ul>
+
 
     <div class="tab-content" id="tenantTabsContent">
         <!-- Licenses Tab -->
@@ -139,10 +152,187 @@
                     </tbody>
                 </table>
             </div>
+
+            <!-- Inactive/Unused Licenses Section -->
+            <div class="row g-4 mt-3">
+                <div class="col-md-12">
+                    <div class="card border-0 p-4 shadow-sm rounded-4 bg-white">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <h5 class="fw-bold mb-1 text-dark"><i class="bi bi-piggy-bank-fill text-success me-2"></i> Reporte de Licencias Ociosas</h5>
+                                <p class="small text-muted mb-0">Usuarios con licencias asignadas que no registran inicios de sesión en los últimos 30 días.</p>
+                            </div>
+                            <button class="btn btn-light btn-sm rounded-3 border" onclick="loadInactiveLicenses()">
+                                <i class="bi bi-arrow-repeat me-1"></i> Ejecutar Análisis
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table align-middle" style="margin-bottom: 0;">
+                                <thead>
+                                    <tr class="text-secondary small text-uppercase fw-bold">
+                                        <th class="ps-3">Usuario</th>
+                                        <th>UPN / Correo</th>
+                                        <th>Último Acceso</th>
+                                        <th>Licencias</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="inactiveLicensesList">
+                                    <tr>
+                                        <td colspan="4" class="text-center py-4 text-muted small">
+                                            Haga clic en 'Ejecutar Análisis' para iniciar el escaneo en tiempo real.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Users Tab -->
+        <div class="tab-pane fade" id="users-list-tab">
+            <div class="mb-4">
+                <h5 class="fw-bold mb-0 text-secondary">Usuarios Asignados a este Tenant</h5>
+            </div>
+            <div class="card p-0 border-0 bg-transparent table-responsive">
+                <table class="table table-premium align-middle" style="width: 100%;">
+                    <thead>
+                        <tr class="text-secondary small text-uppercase fw-bold" style="background: transparent !important; box-shadow: none !important;">
+                            <th class="ps-4">Identidad</th>
+                            <th>UPN / Email principal</th>
+                            <th>Licencias Activas</th>
+                            <th>Status</th>
+                            <th>Última Actividad</th>
+                            <th class="text-end pe-4">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for user in tenant.users %}
+                        <tr>
+                            <td class="ps-4">
+                                <div class="d-flex align-items-center">
+                                    <div class="position-relative me-3">
+                                        <img src="https://ui-avatars.com/api/?name={{ user.display_name }}&background=E0E7FF&color=4338CA&bold=true" width="42" height="42" class="rounded-circle">
+                                        <span class="position-absolute bottom-0 end-0 bg-white rounded-circle p-1" style="line-height:0;" id="badge-container-{{ user.id }}">
+                                            <div class="{{ 'bg-success' if user.is_active else 'bg-danger' }} rounded-circle" style="width:8px; height:8px;" id="badge-{{ user.id }}"></div>
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <div class="fw-bold">{{ user.display_name }}</div>
+                                        <div class="text-muted extra-small">ID: {{ user.graph_id[:8] }}</div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td><span class="text-primary fw-medium small">{{ user.upn }}</span></td>
+                            <td>
+                                <div class="d-flex flex-wrap gap-1" id="licenses-container-{{ user.id }}">
+                                    {% if user.licenses %}
+                                        {% for ul in user.licenses %}
+                                            <span class="badge-soft text-primary bg-primary bg-opacity-10" style="font-size: 0.65rem;">
+                                                {{ ul.license.sku_part_number | friendly_name }}
+                                            </span>
+                                        {% endfor %}
+                                    {% else %}
+                                        <span class="text-muted small fs-italic">Sin asignar</span>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td id="status-text-{{ user.id }}">
+                                {% if user.is_active %}
+                                <span class="text-success fw-bold small"><i class="bi bi-circle-fill me-1" style="font-size: 6px;"></i> Activo</span>
+                                {% else %}
+                                <span class="text-danger fw-bold small"><i class="bi bi-circle-fill me-1" style="font-size: 6px;"></i> Inactivo</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <small class="text-secondary fw-medium">
+                                    {{ user.last_seen.strftime('%d %b, %H:%M') if user.last_seen else 'N/A' }}
+                                </small>
+                            </td>
+                            <td class="text-end pe-4">
+                                {% if current_user.role in ['SUPERADMIN', 'ADMIN'] %}
+                                <div class="dropdown">
+                                    <button class="btn btn-light btn-sm rounded-pill shadow-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                        <i class="bi bi-gear-fill text-secondary"></i>
+                                    </button>
+                                    <ul class="dropdown-menu border-0 shadow-lg rounded-4">
+                                        <li>
+                                            <button class="dropdown-item py-2" id="toggle-btn-{{ user.id }}" onclick="toggleUserStatus('{{ user.id }}')">
+                                                <i class="bi {{ 'bi-person-x-fill text-danger' if user.is_active else 'bi-person-check-fill text-success' }} me-2"></i>
+                                                <span>{{ 'Bloquear Cuenta' if user.is_active else 'Desbloquear Cuenta' }}</span>
+                                            </button>
+                                        </li>
+                                        <li>
+                                            <button class="dropdown-item py-2" onclick="resetPassword('{{ user.id }}', '{{ user.display_name }}')">
+                                                <i class="bi bi-key-fill text-warning me-2"></i> Restablecer Clave
+                                            </button>
+                                        </li>
+                                        <li>
+                                            <button class="dropdown-item py-2" onclick="openEditLicensesModal('{{ user.id }}', '{{ user.display_name }}', '{{ tenant.id }}', '{% for ul in user.licenses %}{{ ul.license.sku_id }}{% if not loop.last %},{% endif %}{% endfor %}')">
+                                                <i class="bi bi-shield-check text-info me-2"></i> Editar Licencias
+                                            </button>
+                                        </li>
+                                        <li>
+                                            <button class="dropdown-item py-2" onclick="openAutoRepliesModal('{{ user.id }}', '{{ user.display_name }}')">
+                                                <i class="bi bi-envelope-heart text-success me-2"></i> Fuera de Oficina
+                                            </button>
+                                        </li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li>
+                                            <button class="dropdown-item py-2 text-danger fw-bold" onclick="openOffboardWizard('{{ user.id }}', '{{ user.display_name }}', '{{ user.upn }}')">
+                                                <i class="bi bi-person-dash-fill me-2"></i> Offboarding Wizard
+                                            </button>
+                                        </li>
+                                    </ul>
+                                </div>
+                                {% else %}
+                                <span class="text-muted small">-</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% if not tenant.users %}
+                        <tr>
+                            <td colspan="6" class="text-center py-5 text-secondary">
+                                <i class="bi bi-people fs-1 d-block mb-2 opacity-25"></i>
+                                No hay usuarios registrados en este tenant.
+                            </td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Groups Tab -->
+        <div class="tab-pane fade" id="groups-tab">
+            <div class="mb-4 d-flex justify-content-between align-items-center">
+                <h5 class="fw-bold mb-0 text-secondary">Grupos de Azure Active Directory / Office 365</h5>
+            </div>
+            <div id="groupsLoading" class="text-center py-5">
+                <span class="spinner-border text-primary me-2"></span>Cargando grupos desde Microsoft 365...
+            </div>
+            <div id="groupsTableContainer" class="card p-0 border-0 bg-transparent table-responsive" style="display: none;">
+                <table class="table table-premium align-middle" style="width: 100%;">
+                    <thead>
+                        <tr class="text-secondary small text-uppercase fw-bold">
+                            <th class="ps-4">Nombre del Grupo</th>
+                            <th>Descripción</th>
+                            <th>Tipo de Grupo</th>
+                            <th class="text-end pe-4">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="groupsTableBody">
+                        <!-- Groups dynamically loaded -->
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <!-- Billing Tab -->
         <div class="tab-pane fade" id="billing">
+
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <h5 class="fw-bold mb-0 text-secondary">Control de Costos y Facturación</h5>
                 {% if current_user.role in ['SUPERADMIN', 'ADMIN', 'FINANCE'] %}
@@ -324,6 +514,101 @@
                 </div>
             </div>
         </div>
+
+        <!-- Shared Mailboxes Tab -->
+        <div class="tab-pane fade" id="shared-mailboxes-tab">
+            <div class="mb-4 d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="fw-bold mb-1 text-secondary">Buzones Compartidos</h5>
+                    <p class="small text-muted mb-0">Gestión de buzones compartidos y delegaciones de acceso.</p>
+                </div>
+                {% if current_user.role in ['SUPERADMIN', 'ADMIN'] %}
+                <button class="btn btn-primary rounded-3 btn-sm shadow-sm" onclick="openCreateMailboxModal()">
+                    <i class="bi bi-plus-lg me-1"></i> Crear Buzón Compartido
+                </button>
+                {% endif %}
+            </div>
+
+            <div class="card border-0 p-0 overflow-hidden bg-transparent table-responsive">
+                <table class="table table-premium align-middle" id="sharedMailboxesTable" style="min-width: 800px;">
+                    <thead>
+                        <tr class="text-secondary small text-uppercase fw-bold">
+                            <th class="ps-4">Nombre de Mostrar</th>
+                            <th>UPN / Correo</th>
+                            <th class="text-end pe-4">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sharedMailboxesList">
+                        <tr>
+                            <td colspan="3" class="text-center py-5">
+                                <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                                <span class="text-secondary">Cargando buzones compartidos...</span>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Compliance & Security Tab -->
+        <div class="tab-pane fade" id="compliance-tab">
+            <div class="mb-4 d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="fw-bold mb-1 text-secondary">Cumplimiento y Seguridad</h5>
+                    <p class="small text-muted mb-0">Auditoría automatizada de directivas de seguridad en Entra ID / Microsoft 365.</p>
+                </div>
+                <button class="btn btn-light rounded-3 btn-sm shadow-sm border" onclick="loadComplianceReport(true)">
+                    <i class="bi bi-arrow-repeat me-1"></i> Re-evaluar Políticas
+                </button>
+            </div>
+
+            <!-- Loader -->
+            <div id="complianceLoading" class="text-center py-5" style="display: none;">
+                <div class="spinner-border text-primary mb-3"></div>
+                <p class="text-secondary">Analizando configuraciones de seguridad de Microsoft 365...</p>
+            </div>
+
+            <!-- Report Cards -->
+            <div id="complianceContent" style="display: none;">
+                <div class="row g-4 mb-4">
+                    <div class="col-md-3">
+                        <div class="card border-0 p-4 shadow-sm rounded-4 h-100 bg-white">
+                            <p class="text-secondary small fw-bold text-uppercase mb-2">MFA Global (Security Defaults)</p>
+                            <h4 class="fw-bold mb-2" id="comp-security-defaults">-</h4>
+                            <div class="small" id="comp-security-defaults-status">-</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-0 p-4 shadow-sm rounded-4 h-100 bg-white">
+                            <p class="text-secondary small fw-bold text-uppercase mb-2">MFA Conditional Access</p>
+                            <h4 class="fw-bold mb-2" id="comp-ca-mfa">-</h4>
+                            <div class="small" id="comp-ca-mfa-status">-</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-0 p-4 shadow-sm rounded-4 h-100 bg-white">
+                            <p class="text-secondary small fw-bold text-uppercase mb-2">Legacy Auth Bloqueado</p>
+                            <h4 class="fw-bold mb-2" id="comp-legacy-auth">-</h4>
+                            <div class="small" id="comp-legacy-auth-status">-</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card border-0 p-4 shadow-sm rounded-4 h-100 bg-white">
+                            <p class="text-secondary small fw-bold text-uppercase mb-2">Contraseñas no Expiran</p>
+                            <h4 class="fw-bold mb-2" id="comp-password-policy">-</h4>
+                            <div class="small" id="comp-password-policy-status">-</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card border-0 p-4 shadow-sm rounded-4 bg-white">
+                    <h5 class="fw-bold mb-3">Recomendaciones de Cumplimiento</h5>
+                    <div class="list-group list-group-flush" id="complianceRecommendations">
+                        <!-- Dynamic recommendations here -->
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -393,7 +678,331 @@
         </div>
     </div>
 </div>
+
+<!-- Modal Miembros del Grupo -->
+<div class="modal fade" id="groupMembersModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="fw-bold"><i class="bi bi-people-fill text-primary me-2"></i>Miembros del Grupo: <span id="groupMembersModalTitle"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-secondary small mb-3">Administra los usuarios pertenecientes a este grupo en Microsoft 365.</p>
+                
+                <!-- Add Member Form -->
+                {% if current_user.role in ['SUPERADMIN', 'ADMIN'] %}
+                <div class="d-flex gap-2 mb-4">
+                    <select class="form-select rounded-3" id="groupAddUserSelect">
+                        <option value="">Seleccione un usuario para agregar...</option>
+                        {% for user in tenant.users %}
+                        <option value="{{ user.graph_id }}">{{ user.display_name }} ({{ user.upn }} - {{ user.tenant.name }})</option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn btn-primary rounded-3 px-4 shadow-sm" onclick="addGroupMember()" id="addGroupMemberBtn">
+                        <i class="bi bi-person-plus-fill me-1"></i> Agregar
+                    </button>
+                </div>
+                {% endif %}
+                
+                <!-- Members Table -->
+                <div class="table-responsive border rounded-4 overflow-hidden bg-white">
+                    <table class="table align-middle mb-0" style="width: 100%;">
+                        <thead class="table-light">
+                            <tr class="small text-secondary fw-bold">
+                                <th class="ps-3">Nombre</th>
+                                <th>UPN / Email</th>
+                                <th class="text-end pe-3">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="groupMembersTableBody">
+                            <!-- Dynamically populated -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Licencias -->
+<div class="modal fade" id="editLicensesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="fw-bold"><i class="bi bi-shield-check text-info me-2"></i>Gestionar Licencias</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-secondary small mb-3">Modifica las asignaciones de licencias de Microsoft 365 para el usuario <strong id="editLicensesUser"></strong>.</p>
+                <div id="licensesCheckboxesContainer" class="list-group list-group-flush border rounded-3 overflow-hidden">
+                    <div class="text-center py-4 text-muted">
+                        <span class="spinner-border spinner-border-sm me-2"></span>Cargando licencias del cliente...
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary rounded-pill px-4" id="saveLicensesBtn" onclick="saveUserLicenses()">Guardar Cambios</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Reset Password -->
+<div class="modal fade" id="passwordModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="fw-bold"><i class="bi bi-key-fill text-warning me-2"></i>Nueva Contraseña Generada</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center py-4">
+                <p class="text-secondary mb-3">Se ha restablecido la clave para <strong id="resetPasswordUser"></strong>. La nueva clave temporal es:</p>
+                <div class="d-flex align-items-center justify-content-center gap-2 p-3 bg-light rounded-3 mb-3 border">
+                    <code class="fs-4 fw-bold text-dark" id="generatedPassword">Cargando...</code>
+                    <button class="btn btn-outline-primary btn-sm rounded-3" onclick="copyPassword()"><i class="bi bi-clipboard"></i></button>
+                </div>
+                <div class="alert alert-info py-2 small mb-0 rounded-3">
+                    <i class="bi bi-info-circle me-1"></i> El usuario deberá cambiar la contraseña en su próximo inicio de sesión.
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-primary rounded-pill px-4" data-bs-dismiss="modal">Entendido</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Offboarding Wizard -->
+<div class="modal fade" id="offboardModal" tabindex="-1" data-bs-backdrop="static" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="fw-bold text-danger"><i class="bi bi-person-dash-fill me-2"></i>Asistente de Offboarding (CIPP)</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" id="offboardCloseBtn"></button>
+            </div>
+            <div class="modal-body">
+                <div class="text-center mb-4">
+                    <p class="text-secondary mb-1">Vas a desvincular la cuenta del usuario:</p>
+                    <h6 class="fw-bold" id="offboardUserName"></h6>
+                    <small class="text-muted" id="offboardUserUpn"></small>
+                </div>
+                
+                <div class="border rounded-4 p-3 bg-light bg-opacity-50 mb-4">
+                    <h6 class="fw-bold text-secondary mb-3 small text-uppercase" style="font-size:0.75rem;">Acciones Secuenciales</h6>
+                    
+                    <div class="d-flex align-items-center gap-3 mb-3" id="step-disable">
+                        <div class="step-icon rounded-circle bg-secondary bg-opacity-10 text-secondary d-flex align-items-center justify-content-center" style="width:32px; height:32px;">
+                            <i class="bi bi-slash-circle-fill"></i>
+                        </div>
+                        <div>
+                            <div class="fw-bold small">Bloquear inicio de sesión</div>
+                            <div class="text-muted extra-small" style="font-size:0.75rem;">Deshabilita la cuenta en Azure AD.</div>
+                        </div>
+                        <div class="ms-auto step-status small text-muted">-</div>
+                    </div>
+
+                    <div class="d-flex align-items-center gap-3 mb-3" id="step-revoke">
+                        <div class="step-icon rounded-circle bg-secondary bg-opacity-10 text-secondary d-flex align-items-center justify-content-center" style="width:32px; height:32px;">
+                            <i class="bi bi-box-arrow-right"></i>
+                        </div>
+                        <div>
+                            <div class="fw-bold small">Revocar sesiones activas</div>
+                            <div class="text-muted extra-small" style="font-size:0.75rem;">Cierra sesión en todos los dispositivos.</div>
+                        </div>
+                        <div class="ms-auto step-status small text-muted">-</div>
+                    </div>
+
+                    <div class="d-flex align-items-center gap-3" id="step-licenses">
+                        <div class="step-icon rounded-circle bg-secondary bg-opacity-10 text-secondary d-flex align-items-center justify-content-center" style="width:32px; height:32px;">
+                            <i class="bi bi-shield-slash-fill"></i>
+                        </div>
+                        <div>
+                            <div class="fw-bold small">Remover licencias asignadas</div>
+                            <div class="text-muted extra-small" style="font-size:0.75rem;">Libera los SKUs asociados al usuario.</div>
+                        </div>
+                        <div class="ms-auto step-status small text-muted">-</div>
+                    </div>
+                </div>
+
+                <div class="alert alert-warning py-2 small mb-0 rounded-3" style="font-size: 0.8rem;">
+                    <i class="bi bi-exclamation-triangle-fill me-1"></i> Esta acción alterará permanentemente el estado en Microsoft 365.
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal" id="offboardCancelBtn">Cancelar</button>
+                <button type="button" class="btn btn-danger rounded-pill px-4" id="offboardStartBtn" onclick="runOffboard()">Iniciar Offboarding</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Crear Buzón Compartido -->
+<div class="modal fade" id="createMailboxModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="fw-bold">Crear Buzón Compartido</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="createMailboxForm" onsubmit="submitCreateMailbox(event)">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Nombre de Mostrar</label>
+                        <input type="text" class="form-control rounded-3" id="mailboxDisplayName" required placeholder="Ej: Ventas Chile">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label small fw-bold">Alias (Correo)</label>
+                            <input type="text" class="form-control rounded-3" id="mailboxAlias" required placeholder="Ej: ventas">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label small fw-bold">Dominio</label>
+                            <select class="form-select rounded-3" id="mailboxDomain" required>
+                                <!-- Pre-populated via JS -->
+                            </select>
+                        </div>
+                    </div>
+                    <div class="text-end mt-4">
+                        <button type="button" class="btn btn-light rounded-pill px-4 me-2" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary rounded-pill px-4" id="mailboxSubmitBtn">Crear Buzón</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Delegados de Buzón Compartido -->
+<div class="modal fade" id="mailboxDelegatesModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <div>
+                    <h5 class="fw-bold mb-1">Delegados de Acceso</h5>
+                    <p class="small text-muted mb-0" id="delegatesMailboxName">-</p>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Add Delegate Section -->
+                {% if current_user.role in ['SUPERADMIN', 'ADMIN'] %}
+                <div class="p-3 bg-light rounded-4 mb-4">
+                    <h6 class="fw-bold mb-3 small text-uppercase text-secondary">Agregar Nuevo Delegado</h6>
+                    <form id="addDelegateForm" onsubmit="submitAddDelegate(event)" class="row g-3 align-items-end">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">Usuario del Tenant</label>
+                            <select class="form-select rounded-3" id="newDelegateSelect" required>
+                                <option value="">Seleccione un usuario...</option>
+                                {% for u in tenant.users %}
+                                <option value="{{ u.upn }}" data-name="{{ u.display_name }}">{{ u.display_name }} ({{ u.upn }})</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold">Permiso / Rol</label>
+                            <select class="form-select rounded-3" id="newDelegateRole" required>
+                                <option value="editor">Read and Manage (Editor)</option>
+                                <option value="sendAs">Send As (Autor)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-primary rounded-pill w-100" id="addDelegateBtn">Agregar</button>
+                        </div>
+                    </form>
+                </div>
+                {% endif %}
+
+                <!-- Delegates List -->
+                <h6 class="fw-bold mb-3 small text-uppercase text-secondary">Delegados Activos</h6>
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead>
+                            <tr class="text-secondary small text-uppercase fw-bold">
+                                <th>Nombre</th>
+                                <th>Correo / UPN</th>
+                                <th>Permiso</th>
+                                <th class="text-end">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody id="delegatesListBody">
+                            <!-- Populated dynamically via JS -->
+                        </tbody>
+                    </table>
+                </div>
+</div>
+
+<!-- Modal Respuestas Automáticas (Fuera de Oficina) -->
+<div class="modal fade" id="autoRepliesModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <div>
+                    <h5 class="fw-bold mb-1">Configurar Fuera de Oficina (OOF)</h5>
+                    <p class="small text-muted mb-0" id="autoRepliesUserName">-</p>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="autoRepliesForm" onsubmit="submitAutoReplies(event)">
+                    <input type="hidden" id="autoRepliesUserId">
+                    <input type="hidden" id="autoRepliesTenantId">
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">Estado de Respuestas Automáticas</label>
+                            <select class="form-select rounded-3" id="autoRepliesStatus" onchange="toggleScheduledInputs()" required>
+                                <option value="disabled">Desactivado (Respuestas apagadas)</option>
+                                <option value="alwaysEnabled">Siempre activo (Enviar respuestas de inmediato)</option>
+                                <option value="scheduled">Programado (Enviar solo durante este periodo)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">Público Externo</label>
+                            <select class="form-select rounded-3" id="autoRepliesAudience" required>
+                                <option value="all">Cualquier remitente externo</option>
+                                <option value="contactsOnly">Solo mis contactos externos</option>
+                                <option value="none">Nadie (No enviar respuestas afuera de la empresa)</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div id="scheduledTimeInputs" style="display: none;" class="row mb-3 p-3 bg-light rounded-3 g-3 mx-0">
+                        <div class="col-md-6 mt-0">
+                            <label class="form-label small fw-bold">Fecha/Hora de Inicio (Local)</label>
+                            <input type="datetime-local" class="form-control rounded-3" id="autoRepliesStart">
+                        </div>
+                        <div class="col-md-6 mt-0">
+                            <label class="form-label small fw-bold">Fecha/Hora de Fin (Local)</label>
+                            <input type="datetime-local" class="form-control rounded-3" id="autoRepliesEnd">
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Mensaje para miembros de la Empresa (Interno)</label>
+                        <textarea class="form-control rounded-3" id="autoRepliesInternal" rows="4" placeholder="Escribe tu mensaje aquí..." required></textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Mensaje para remitentes Externos (Fuera de la Empresa)</label>
+                        <textarea class="form-control rounded-3" id="autoRepliesExternal" rows="4" placeholder="Escribe tu mensaje aquí..." required></textarea>
+                    </div>
+                    
+                    <div class="text-end mt-4">
+                        <button type="button" class="btn btn-light rounded-pill px-4 me-2" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary rounded-pill px-4" id="autoRepliesSubmitBtn">Guardar Configuración</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
+
 
 {% block scripts %}
 <script>
@@ -513,5 +1122,1002 @@ async function saveTenantProfile() {
         alert('Error de conexión');
     }
 }
+
+let currentOffboardId = null;
+let currentGroupId = null;
+let currentGroupName = null;
+
+async function loadTenantGroups() {
+    const loading = document.getElementById('groupsLoading');
+    const tableContainer = document.getElementById('groupsTableContainer');
+    const body = document.getElementById('groupsTableBody');
+    
+    loading.style.display = 'block';
+    tableContainer.style.display = 'none';
+    body.innerHTML = '';
+    
+    try {
+        const response = await fetch(`/api/tenants/{{ tenant.id }}/groups`);
+        if (response.ok) {
+            const groups = await response.json();
+            loading.style.display = 'none';
+            tableContainer.style.display = 'block';
+            
+            if (groups.length === 0) {
+                body.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-secondary">No hay grupos registrados en este tenant.</td></tr>';
+                return;
+            }
+            
+            groups.forEach(g => {
+                const isSecurity = g.securityEnabled;
+                const isUnified = g.groupTypes.includes('Unified');
+                let typeBadge = '<span class="badge bg-secondary">Security Group</span>';
+                if (isUnified) {
+                    typeBadge = '<span class="badge bg-primary">Microsoft 365 Group</span>';
+                }
+                
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="ps-4 fw-bold text-dark"><i class="bi bi-people-fill text-primary me-2"></i>${g.displayName}</td>
+                    <td><span class="text-secondary small">${g.description || '-'}</span></td>
+                    <td>${typeBadge}</td>
+                    <td class="text-end pe-4">
+                        <button class="btn btn-outline-primary btn-sm rounded-3" onclick="openGroupMembersModal('${g.id}', '${g.displayName}')">
+                            <i class="bi bi-people-fill me-1"></i> Miembros
+                        </button>
+                    </td>
+                `;
+                body.appendChild(tr);
+            });
+        } else {
+            loading.innerHTML = '<span class="text-danger">Error al cargar los grupos desde Microsoft 365.</span>';
+        }
+    } catch (e) {
+        loading.innerHTML = '<span class="text-danger">Error de conexión con el servidor.</span>';
+    }
+}
+
+async function openGroupMembersModal(groupId, displayName) {
+    currentGroupId = groupId;
+    currentGroupName = displayName;
+    document.getElementById('groupMembersModalTitle').innerText = displayName;
+    
+    const body = document.getElementById('groupMembersTableBody');
+    body.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-muted"><span class="spinner-border spinner-border-sm me-2"></span>Cargando miembros...</td></tr>';
+    
+    const select = document.getElementById('groupAddUserSelect');
+    if (select) select.value = '';
+    
+    const myModal = new bootstrap.Modal(document.getElementById('groupMembersModal'));
+    myModal.show();
+    
+    await refreshGroupMembers();
+}
+
+async function refreshGroupMembers() {
+    const body = document.getElementById('groupMembersTableBody');
+    try {
+        const response = await fetch(`/api/groups/${currentGroupId}/members?tenant_id={{ tenant.id }}`);
+        if (response.ok) {
+            const members = await response.json();
+            body.innerHTML = '';
+            
+            if (members.length === 0) {
+                body.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-secondary">El grupo no tiene miembros asignados.</td></tr>';
+                return;
+            }
+            
+            members.forEach(m => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="ps-3 fw-bold small">${m.displayName}</td>
+                    <td class="text-secondary small">${m.userPrincipalName}</td>
+                    <td class="text-end pe-3">
+                        {% if current_user.role in ['SUPERADMIN', 'ADMIN'] %}
+                        <button class="btn btn-outline-danger btn-sm rounded-pill" onclick="removeGroupMember('${m.id}')">
+                            <i class="bi bi-trash-fill"></i>
+                        </button>
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                `;
+                body.appendChild(tr);
+            });
+        } else {
+            body.innerHTML = '<tr><td colspan="3" class="text-center text-danger py-4">Error al cargar miembros.</td></tr>';
+        }
+    } catch (e) {
+        body.innerHTML = '<tr><td colspan="3" class="text-center text-danger py-4">Error de conexión.</td></tr>';
+    }
+}
+
+async function addGroupMember() {
+    const select = document.getElementById('groupAddUserSelect');
+    const userGraphId = select.value;
+    if (!userGraphId) {
+        alert('Por favor, selecciona un usuario.');
+        return;
+    }
+    
+    const addBtn = document.getElementById('addGroupMemberBtn');
+    addBtn.disabled = true;
+    addBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Agregando...';
+    
+    try {
+        const response = await fetch(`/api/groups/${currentGroupId}/members?tenant_id={{ tenant.id }}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_graph_id: userGraphId })
+        });
+        
+        if (response.ok) {
+            alert('Usuario agregado exitosamente al grupo.');
+            await refreshGroupMembers();
+        } else {
+            const err = await response.json();
+            alert('Error: ' + err.detail);
+        }
+    } catch (e) {
+        alert('Error de conexión.');
+    } finally {
+        addBtn.disabled = false;
+        addBtn.innerHTML = '<i class="bi bi-person-plus-fill me-1"></i> Agregar';
+        select.value = '';
+    }
+}
+
+async function removeGroupMember(memberGraphId) {
+    if (!confirm('¿Estás seguro de remover a este usuario del grupo?')) return;
+    
+    try {
+        const response = await fetch(`/api/groups/${currentGroupId}/members/${memberGraphId}?tenant_id={{ tenant.id }}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            alert('Usuario removido del grupo exitosamente.');
+            await refreshGroupMembers();
+        } else {
+            const err = await response.json();
+            alert('Error: ' + err.detail);
+        }
+    } catch (e) {
+        alert('Error de conexión.');
+    }
+}
+
+let editLicensesUserId = null;
+let editLicensesOriginalSkus = [];
+let tenantLicensesList = [];
+
+async function openEditLicensesModal(userId, name, tenantId, currentSkuIdsStr) {
+    editLicensesUserId = userId;
+    editLicensesOriginalSkus = currentSkuIdsStr ? currentSkuIdsStr.split(',') : [];
+    
+    document.getElementById('editLicensesUser').innerText = name;
+    const container = document.getElementById('licensesCheckboxesContainer');
+    container.innerHTML = `
+        <div class="text-center py-4 text-muted">
+            <span class="spinner-border spinner-border-sm me-2"></span>Cargando licencias del cliente...
+        </div>
+    `;
+    
+    const saveBtn = document.getElementById('saveLicensesBtn');
+    if (saveBtn) saveBtn.disabled = true;
+    
+    const editModal = new bootstrap.Modal(document.getElementById('editLicensesModal'));
+    editModal.show();
+    
+    try {
+        const response = await fetch(`/api/tenants/${tenantId}/licenses`);
+        if (response.ok) {
+            tenantLicensesList = await response.json();
+            container.innerHTML = '';
+            
+            if (tenantLicensesList.length === 0) {
+                container.innerHTML = '<div class="list-group-item text-center py-3 text-secondary">No hay licencias registradas para este tenant.</div>';
+                return;
+            }
+            
+            tenantLicensesList.forEach(lic => {
+                const isActive = editLicensesOriginalSkus.includes(lic.sku_id);
+                const item = document.createElement('div');
+                item.className = 'list-group-item d-flex align-items-center justify-content-between py-2';
+                item.innerHTML = `
+                    <div>
+                        <div class="fw-bold small">${lic.friendly_name}</div>
+                        <div class="text-muted extra-small">${lic.sku_part_number} (Disp: ${lic.available})</div>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input license-checkbox" type="checkbox" data-sku-id="${lic.sku_id}" ${isActive ? 'checked' : ''}>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+            if (saveBtn) saveBtn.disabled = false;
+        } else {
+            container.innerHTML = '<div class="list-group-item text-center text-danger py-3">Error al cargar las licencias.</div>';
+        }
+    } catch (e) {
+        container.innerHTML = '<div class="list-group-item text-center text-danger py-3">Error de conexión.</div>';
+    }
+}
+
+async function saveUserLicenses() {
+    const checkboxes = document.querySelectorAll('.license-checkbox');
+    const add_licenses = [];
+    const remove_licenses = [];
+    
+    checkboxes.forEach(cb => {
+        const skuId = cb.getAttribute('data-sku-id');
+        const isChecked = cb.checked;
+        const originallyChecked = editLicensesOriginalSkus.includes(skuId);
+        
+        if (isChecked && !originallyChecked) {
+            add_licenses.push({ "skuId": skuId });
+        } else if (!isChecked && originallyChecked) {
+            remove_licenses.push(skuId);
+        }
+    });
+    
+    const saveBtn = document.getElementById('saveLicensesBtn');
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Guardando...';
+    }
+    
+    try {
+        const response = await fetch(`/api/users/${editLicensesUserId}/assign-licenses`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ add_licenses, remove_licenses })
+        });
+        
+        if (response.ok) {
+            alert('Licencias actualizadas correctamente.');
+            location.reload();
+        } else {
+            const err = await response.json();
+            alert('Error: ' + err.detail);
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = 'Guardar Cambios';
+            }
+        }
+    } catch (e) {
+        alert('Error de conexión.');
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = 'Guardar Cambios';
+        }
+    }
+}
+
+
+async function toggleUserStatus(userId) {
+    if (!confirm("¿Está seguro de cambiar el estado de este usuario en Microsoft 365?")) return;
+    
+    try {
+        const response = await fetch(`/api/users/${userId}/toggle-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            
+            // Actualizar visualmente la tabla
+            const badge = document.getElementById(`badge-${userId}`);
+            const textEl = document.getElementById(`status-text-${userId}`);
+            const btnEl = document.getElementById(`toggle-btn-${userId}`);
+            
+            if (data.is_active) {
+                if (badge) badge.className = "bg-success rounded-circle";
+                if (textEl) textEl.innerHTML = `<span class="text-success fw-bold small"><i class="bi bi-circle-fill me-1" style="font-size: 6px;"></i> Activo</span>`;
+                if (btnEl) btnEl.innerHTML = `<i class="bi bi-person-x-fill text-danger me-2"></i> <span>Bloquear Cuenta</span>`;
+            } else {
+                if (badge) badge.className = "bg-danger rounded-circle";
+                if (textEl) textEl.innerHTML = `<span class="text-danger fw-bold small"><i class="bi bi-circle-fill me-1" style="font-size: 6px;"></i> Inactivo</span>`;
+                if (btnEl) btnEl.innerHTML = `<i class="bi bi-person-check-fill text-success me-2"></i> <span>Desbloquear Cuenta</span>`;
+            }
+        } else {
+            const err = await response.json();
+            alert("Error: " + err.detail);
+        }
+    } catch (e) {
+        alert("Error de conexión al servidor");
+    }
+}
+
+async function resetPassword(userId, name) {
+    if (!confirm(`¿Desea restablecer la clave de ${name}?`)) return;
+    
+    try {
+        document.getElementById('resetPasswordUser').innerText = name;
+        document.getElementById('generatedPassword').innerText = 'Generando...';
+        
+        const myModal = new bootstrap.Modal(document.getElementById('passwordModal'));
+        myModal.show();
+        
+        const response = await fetch(`/api/users/${userId}/reset-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('generatedPassword').innerText = data.password;
+        } else {
+            myModal.hide();
+            const err = await response.json();
+            alert("Error: " + err.detail);
+        }
+    } catch (e) {
+        alert("Error de conexión al servidor");
+    }
+}
+
+function copyPassword() {
+    const pwd = document.getElementById('generatedPassword').innerText;
+    navigator.clipboard.writeText(pwd).then(() => {
+        alert("Contraseña copiada al portapapeles");
+    });
+}
+
+function openOffboardWizard(userId, name, upn) {
+    currentOffboardId = userId;
+    document.getElementById('offboardUserName').innerText = name;
+    document.getElementById('offboardUserUpn').innerText = upn;
+    
+    // Reset steps UI
+    const steps = ['disable', 'revoke', 'licenses'];
+    steps.forEach(step => {
+        const el = document.getElementById(`step-${step}`);
+        const iconDiv = el.querySelector('.step-icon');
+        const statusDiv = el.querySelector('.step-status');
+        
+        iconDiv.className = "step-icon rounded-circle bg-secondary bg-opacity-10 text-secondary d-flex align-items-center justify-content-center";
+        iconDiv.innerHTML = getStepDefaultIcon(step);
+        statusDiv.className = "ms-auto step-status small text-muted";
+        statusDiv.innerText = "-";
+    });
+    
+    document.getElementById('offboardStartBtn').disabled = false;
+    document.getElementById('offboardStartBtn').innerHTML = "Iniciar Offboarding";
+    document.getElementById('offboardCancelBtn').style.display = "inline-block";
+    document.getElementById('offboardCloseBtn').style.display = "inline-block";
+    
+    const wizardModal = new bootstrap.Modal(document.getElementById('offboardModal'));
+    wizardModal.show();
+}
+
+function getStepDefaultIcon(step) {
+    if (step === 'disable') return '<i class="bi bi-slash-circle-fill"></i>';
+    if (step === 'revoke') return '<i class="bi bi-box-arrow-right"></i>';
+    if (step === 'licenses') return '<i class="bi bi-shield-slash-fill"></i>';
+    return '';
+}
+
+async function runOffboard() {
+    const startBtn = document.getElementById('offboardStartBtn');
+    const cancelBtn = document.getElementById('offboardCancelBtn');
+    const closeBtn = document.getElementById('offboardCloseBtn');
+    
+    startBtn.disabled = true;
+    startBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Procesando...';
+    cancelBtn.style.display = 'none';
+    closeBtn.style.display = 'none';
+    
+    const setStepLoading = (stepId) => {
+        const el = document.getElementById(`step-${stepId}`);
+        const iconDiv = el.querySelector('.step-icon');
+        const statusDiv = el.querySelector('.step-status');
+        iconDiv.className = "step-icon rounded-circle bg-warning bg-opacity-10 text-warning d-flex align-items-center justify-content-center";
+        iconDiv.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        statusDiv.className = "ms-auto step-status small text-warning fw-bold";
+        statusDiv.innerText = "Ejecutando...";
+    };
+    
+    const setStepSuccess = (stepId) => {
+        const el = document.getElementById(`step-${stepId}`);
+        const iconDiv = el.querySelector('.step-icon');
+        const statusDiv = el.querySelector('.step-status');
+        iconDiv.className = "step-icon rounded-circle bg-success bg-opacity-10 text-success d-flex align-items-center justify-content-center";
+        iconDiv.innerHTML = '<i class="bi bi-check-lg"></i>';
+        statusDiv.className = "ms-auto step-status small text-success fw-bold";
+        statusDiv.innerText = "Listo";
+    };
+    
+    const setStepError = (stepId) => {
+        const el = document.getElementById(`step-${stepId}`);
+        const iconDiv = el.querySelector('.step-icon');
+        const statusDiv = el.querySelector('.step-status');
+        iconDiv.className = "step-icon rounded-circle bg-danger bg-opacity-10 text-danger d-flex align-items-center justify-content-center";
+        iconDiv.innerHTML = '<i class="bi bi-x-lg"></i>';
+        statusDiv.className = "ms-auto step-status small text-danger fw-bold";
+        statusDiv.innerText = "Falló";
+    };
+
+    setStepLoading('disable');
+    
+    try {
+        const response = await fetch(`/api/users/${currentOffboardId}/offboard`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (response.ok) {
+            setStepSuccess('disable');
+            setStepLoading('revoke');
+            await new Promise(r => setTimeout(r, 600));
+            setStepSuccess('revoke');
+            setStepLoading('licenses');
+            await new Promise(r => setTimeout(r, 600));
+            setStepSuccess('licenses');
+            
+            startBtn.className = "btn btn-success rounded-pill px-4";
+            startBtn.innerHTML = '<i class="bi bi-check-circle-fill me-2"></i>Completado';
+            closeBtn.style.display = 'inline-block';
+            
+            const userId = currentOffboardId;
+            const badge = document.getElementById(`badge-${userId}`);
+            const textEl = document.getElementById(`status-text-${userId}`);
+            const btnEl = document.getElementById(`toggle-btn-${userId}`);
+            const licContainer = document.getElementById(`licenses-container-${userId}`);
+            
+            if (badge) badge.className = "bg-danger rounded-circle";
+            if (textEl) textEl.innerHTML = `<span class="text-danger fw-bold small"><i class="bi bi-circle-fill me-1" style="font-size: 6px;"></i> Inactivo</span>`;
+            if (btnEl) btnEl.innerHTML = `<i class="bi bi-person-check-fill text-success me-2"></i> <span>Desbloquear Cuenta</span>`;
+            if (licContainer) licContainer.innerHTML = `<span class="text-muted small fs-italic">Sin asignar</span>`;
+        } else {
+            setStepError('disable');
+            setStepError('revoke');
+            setStepError('licenses');
+            const err = await response.json();
+            alert("Error en el proceso de offboarding: " + err.detail);
+            startBtn.className = "btn btn-danger rounded-pill px-4";
+            startBtn.innerHTML = "Reintentar";
+            startBtn.disabled = false;
+            closeBtn.style.display = 'inline-block';
+        }
+    } catch (e) {
+        setStepError('disable');
+        alert("Error de conexión durante el proceso");
+        startBtn.className = "btn btn-danger rounded-pill px-4";
+        startBtn.innerHTML = "Reintentar";
+        startBtn.disabled = false;
+        closeBtn.style.display = 'inline-block';
+    }
+}
+
+// --- Shared Mailboxes Management ---
+let currentSharedMailboxId = '';
+let currentSharedMailboxName = '';
+
+async function loadSharedMailboxes() {
+    const listBody = document.getElementById('sharedMailboxesList');
+    listBody.innerHTML = `
+        <tr>
+            <td colspan="3" class="text-center py-5">
+                <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                <span class="text-secondary">Cargando buzones compartidos...</span>
+            </td>
+        </tr>
+    `;
+    
+    try {
+        const response = await fetch(`/api/tenants/{{ tenant.id }}/shared-mailboxes`);
+        if (!response.ok) throw new Error('No se pudieron obtener los buzones compartidos');
+        
+        const mailboxes = await response.json();
+        listBody.innerHTML = '';
+        
+        if (mailboxes.length === 0) {
+            listBody.innerHTML = `
+                <tr class="bg-white">
+                    <td colspan="3" class="text-center py-5">
+                        <p class="text-secondary mb-0">No se encontraron buzones compartidos en este tenant.</p>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+        
+        mailboxes.forEach(m => {
+            const row = document.createElement('tr');
+            row.className = 'bg-white';
+            row.innerHTML = `
+                <td class="ps-4 fw-bold text-dark">${m.displayName}</td>
+                <td><code class="small text-secondary">${m.userPrincipalName}</code></td>
+                <td class="text-end pe-4">
+                    <button class="btn btn-light rounded-3 btn-sm shadow-sm border" onclick="openDelegatesModal('${m.id}', '${m.displayName}')">
+                        <i class="bi bi-people me-1"></i> Delegados
+                    </button>
+                </td>
+            `;
+            listBody.appendChild(row);
+        });
+        
+    } catch (e) {
+        listBody.innerHTML = `
+            <tr class="bg-white">
+                <td colspan="3" class="text-center py-5 text-danger">
+                    <i class="bi bi-exclamation-circle-fill me-1"></i> Error al cargar buzones: ${e.message}
+                </td>
+            </tr>
+        `;
+    }
+}
+
+function openCreateMailboxModal() {
+    const selectDomain = document.getElementById('mailboxDomain');
+    selectDomain.innerHTML = '';
+    
+    const domains = new Set();
+    {% for u in tenant.users %}
+        if ('{{ u.upn }}'.includes('@')) {
+            domains.add('{{ u.upn }}'.split('@')[1]);
+        }
+    {% endfor %}
+    
+    if (domains.size === 0) {
+        domains.add('onmicrosoft.com');
+    }
+    
+    domains.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.innerText = d;
+        selectDomain.appendChild(opt);
+    });
+    
+    document.getElementById('createMailboxForm').reset();
+    new bootstrap.Modal(document.getElementById('createMailboxModal')).show();
+}
+
+async function submitCreateMailbox(event) {
+    event.preventDefault();
+    const submitBtn = document.getElementById('mailboxSubmitBtn');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creando...';
+    
+    const displayName = document.getElementById('mailboxDisplayName').value;
+    const alias = document.getElementById('mailboxAlias').value;
+    const domain = document.getElementById('mailboxDomain').value;
+    
+    try {
+        const response = await fetch(`/api/tenants/{{ tenant.id }}/shared-mailboxes/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ display_name: displayName, alias: alias, domain: domain })
+        });
+        
+        if (response.ok) {
+            alert('Buzón compartido creado exitosamente');
+            bootstrap.Modal.getInstance(document.getElementById('createMailboxModal')).hide();
+            loadSharedMailboxes();
+        } else {
+            const err = await response.json();
+            alert('Error al crear buzón: ' + err.detail);
+        }
+    } catch (e) {
+        alert('Error de conexión con el servidor');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = 'Crear Buzón';
+    }
+}
+
+async function openDelegatesModal(mailboxId, displayName) {
+    currentSharedMailboxId = mailboxId;
+    currentSharedMailboxName = displayName;
+    document.getElementById('delegatesMailboxName').innerText = displayName;
+    
+    const tbody = document.getElementById('delegatesListBody');
+    tbody.innerHTML = `
+        <tr>
+            <td colspan="4" class="text-center py-4">
+                <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                <span>Cargando delegados...</span>
+            </td>
+        </tr>
+    `;
+    
+    new bootstrap.Modal(document.getElementById('mailboxDelegatesModal')).show();
+    await loadDelegatesList();
+}
+
+async function loadDelegatesList() {
+    const tbody = document.getElementById('delegatesListBody');
+    try {
+        const response = await fetch(`/api/tenants/{{ tenant.id }}/shared-mailboxes/${currentSharedMailboxId}/delegates`);
+        if (!response.ok) throw new Error('No se pudieron obtener los delegados');
+        
+        const delegates = await response.json();
+        tbody.innerHTML = '';
+        
+        if (delegates.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="4" class="text-center py-4 text-muted">
+                        No hay delegados asignados a este buzón compartido.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+        
+        delegates.forEach(d => {
+            const u = d.user || {};
+            const emailAddr = u.emailAddress || {};
+            const email = emailAddr.address || 'Desconocido';
+            const name = emailAddr.name || 'Desconocido';
+            
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="fw-bold">${name}</td>
+                <td><code class="small text-secondary">${email}</code></td>
+                <td><span class="badge bg-primary bg-opacity-10 text-primary fw-bold text-uppercase">${d.role || 'editor'}</span></td>
+                <td class="text-end">
+                    {% if current_user.role in ['SUPERADMIN', 'ADMIN'] %}
+                    <button class="btn btn-link text-danger p-0" onclick="removeDelegate('${d.id}', '${email}')">
+                        <i class="bi bi-trash fs-5"></i>
+                    </button>
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch (e) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="4" class="text-center py-4 text-danger">
+                    Error al cargar delegados: ${e.message}
+                </td>
+            </tr>
+        `;
+    }
+}
+
+async function submitAddDelegate(event) {
+    event.preventDefault();
+    const btn = document.getElementById('addDelegateBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    
+    const select = document.getElementById('newDelegateSelect');
+    const option = select.options[select.selectedIndex];
+    const email = select.value;
+    const name = option.getAttribute('data-name');
+    const role = document.getElementById('newDelegateRole').value;
+    
+    try {
+        const response = await fetch(`/api/tenants/{{ tenant.id }}/shared-mailboxes/${currentSharedMailboxId}/delegates`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ delegate_email: email, delegate_name: name, role: role })
+        });
+        
+        if (response.ok) {
+            document.getElementById('addDelegateForm').reset();
+            await loadDelegatesList();
+        } else {
+            const err = await response.json();
+            alert('Error al agregar delegado: ' + err.detail);
+        }
+    } catch (e) {
+        alert('Error de conexión');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Agregar';
+    }
+}
+
+async function removeDelegate(delegateId, delegateEmail) {
+    if (!confirm(`¿Está seguro de remover a ${delegateEmail} como delegado?`)) return;
+    
+    try {
+        const response = await fetch(`/api/tenants/{{ tenant.id }}/shared-mailboxes/${currentSharedMailboxId}/delegates/${delegateId}?delegate_email=${encodeURIComponent(delegateEmail)}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            await loadDelegatesList();
+        } else {
+            const err = await response.json();
+            alert('Error al eliminar delegado: ' + err.detail);
+        }
+    } catch (e) {
+        alert('Error de conexión');
+    }
+}
+
+// --- Compliance Engine ---
+async function loadComplianceReport(force = false) {
+    const loader = document.getElementById('complianceLoading');
+    const content = document.getElementById('complianceContent');
+    
+    if (force || content.style.display === 'none') {
+        loader.style.display = 'block';
+        content.style.display = 'none';
+        
+        try {
+            const response = await fetch(`/api/tenants/{{ tenant.id }}/compliance-report`);
+            if (!response.ok) throw new Error('No se pudo obtener el reporte de cumplimiento');
+            
+            const metrics = await response.json();
+            
+            renderMetric('security-defaults', metrics.security_defaults);
+            renderMetric('ca-mfa', metrics.conditional_access_mfa);
+            renderMetric('legacy-auth', metrics.block_legacy_auth);
+            renderMetric('password-policy', metrics.password_never_expires);
+            
+            const recsContainer = document.getElementById('complianceRecommendations');
+            recsContainer.innerHTML = '';
+            
+            let recommendations = [];
+            
+            if (metrics.security_defaults === 'DISABLED' && metrics.conditional_access_mfa === 'DISABLED') {
+                recommendations.push({
+                    title: "Habilitar Requerimiento de MFA",
+                    desc: "Ni 'Security Defaults' ni políticas de Conditional Access que requieran MFA están activas. Active Security Defaults para forzar MFA globalmente.",
+                    level: "danger"
+                });
+            }
+            
+            if (metrics.block_legacy_auth === 'DISABLED') {
+                recommendations.push({
+                    title: "Bloquear Autenticación Heredada (Legacy Auth)",
+                    desc: "Los clientes de correo antiguos que no soportan autenticación moderna (MFA) pueden acceder. Cree una política de Conditional Access para bloquearlos.",
+                    level: "warning"
+                });
+            }
+            
+            if (metrics.password_never_expires === 'DISABLED') {
+                recommendations.push({
+                    title: "Configurar Contraseñas para que No Expiran",
+                    desc: "La política de la organización permite la expiración de contraseñas. Las mejores prácticas recomiendan no forzar el cambio periódico, sino usar MFA fuerte.",
+                    level: "info"
+                });
+            }
+            
+            if (recommendations.length === 0) {
+                recsContainer.innerHTML = `
+                    <div class="list-group-item py-4 text-center text-success">
+                        <i class="bi bi-shield-fill-check fs-2 mb-2 d-block"></i>
+                        <span class="fw-bold">¡Excelente! El tenant cumple con todos los controles clave analizados.</span>
+                    </div>
+                `;
+            } else {
+                recommendations.forEach(r => {
+                    const item = document.createElement('div');
+                    item.className = `list-group-item py-3 d-flex align-items-start gap-3 border-0 px-0`;
+                    const badgeClass = r.level === 'danger' ? 'bg-danger text-white' : r.level === 'warning' ? 'bg-warning text-dark' : 'bg-info text-white';
+                    item.innerHTML = `
+                        <span class="badge ${badgeClass} rounded-circle p-2 d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
+                            <i class="bi bi-exclamation-triangle-fill"></i>
+                        </span>
+                        <div>
+                            <h6 class="fw-bold mb-1 text-dark">${r.title}</h6>
+                            <p class="small text-secondary mb-0">${r.desc}</p>
+                        </div>
+                    `;
+                    recsContainer.appendChild(item);
+                });
+            }
+            
+            loader.style.display = 'none';
+            content.style.display = 'block';
+            
+        } catch (e) {
+            loader.style.display = 'none';
+            alert('Error al evaluar políticas: ' + e.message);
+        }
+    }
+}
+
+function renderMetric(id, val) {
+    const valEl = document.getElementById(`comp-${id}`);
+    const statusEl = document.getElementById(`comp-${id}-status`);
+    
+    if (val === 'ENABLED' || val === 'PASS') {
+        valEl.innerText = "PASÓ";
+        valEl.className = "fw-bold mb-2 text-success";
+        statusEl.className = "small text-success fw-bold";
+        statusEl.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i>Habilitado / Protegido';
+    } else if (val === 'DISABLED' || val === 'FAIL') {
+        valEl.innerText = "ALERTA";
+        valEl.className = "fw-bold mb-2 text-danger";
+        statusEl.className = "small text-danger fw-bold";
+        statusEl.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i>Inactivo / Vulnerable';
+    } else {
+        valEl.innerText = "ERROR";
+        valEl.className = "fw-bold mb-2 text-secondary";
+        statusEl.className = "small text-secondary";
+        statusEl.innerHTML = '<i class="bi bi-question-circle-fill me-1"></i>Sin acceso / Desconocido';
+    }
+}
+
+// --- Out of Office (OOF) & Auto Replies ---
+function toggleScheduledInputs() {
+    const status = document.getElementById('autoRepliesStatus').value;
+    const inputs = document.getElementById('scheduledTimeInputs');
+    if (status === 'scheduled') {
+        inputs.style.display = 'flex';
+        document.getElementById('autoRepliesStart').required = true;
+        document.getElementById('autoRepliesEnd').required = true;
+    } else {
+        inputs.style.display = 'none';
+        document.getElementById('autoRepliesStart').required = false;
+        document.getElementById('autoRepliesEnd').required = false;
+    }
+}
+
+async function openAutoRepliesModal(userId, displayName) {
+    document.getElementById('autoRepliesUserName').innerText = displayName;
+    document.getElementById('autoRepliesUserId').value = userId;
+    document.getElementById('autoRepliesTenantId').value = "{{ tenant.id }}";
+    
+    document.getElementById('autoRepliesForm').reset();
+    toggleScheduledInputs();
+    
+    const submitBtn = document.getElementById('autoRepliesSubmitBtn');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Cargando...';
+    
+    const myModal = new bootstrap.Modal(document.getElementById('autoRepliesModal'));
+    myModal.show();
+    
+    try {
+        const response = await fetch(`/api/tenants/{{ tenant.id }}/users/${userId}/auto-replies`);
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || 'No se pudieron obtener las respuestas automáticas');
+        }
+        
+        const data = await response.json();
+        
+        document.getElementById('autoRepliesStatus').value = data.status || 'disabled';
+        document.getElementById('autoRepliesAudience').value = data.externalAudience || 'all';
+        document.getElementById('autoRepliesInternal').value = data.internalReplyMessage || '';
+        document.getElementById('autoRepliesExternal').value = data.externalReplyMessage || '';
+        
+        if (data.scheduledStartDateTime && data.scheduledStartDateTime.dateTime) {
+            const startStr = data.scheduledStartDateTime.dateTime.substring(0, 16);
+            document.getElementById('autoRepliesStart').value = startStr;
+        }
+        if (data.scheduledEndDateTime && data.scheduledEndDateTime.dateTime) {
+            const endStr = data.scheduledEndDateTime.dateTime.substring(0, 16);
+            document.getElementById('autoRepliesEnd').value = endStr;
+        }
+        
+        toggleScheduledInputs();
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = 'Guardar Configuración';
+    } catch (e) {
+        alert('Error al cargar OOF: ' + e.message);
+        myModal.hide();
+    }
+}
+
+async function submitAutoReplies(event) {
+    event.preventDefault();
+    const btn = document.getElementById('autoRepliesSubmitBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Guardando...';
+    
+    const tenantId = document.getElementById('autoRepliesTenantId').value;
+    const userId = document.getElementById('autoRepliesUserId').value;
+    
+    const status = document.getElementById('autoRepliesStatus').value;
+    const audience = document.getElementById('autoRepliesAudience').value;
+    const internal = document.getElementById('autoRepliesInternal').value;
+    const external = document.getElementById('autoRepliesExternal').value;
+    
+    const payload = {
+        status: status,
+        externalAudience: audience,
+        internalReplyMessage: internal,
+        externalReplyMessage: external
+    };
+    
+    if (status === 'scheduled') {
+        const startVal = document.getElementById('autoRepliesStart').value;
+        const endVal = document.getElementById('autoRepliesEnd').value;
+        
+        payload.scheduledStartDateTime = {
+            dateTime: startVal + ":00",
+            timeZone: "UTC"
+        };
+        payload.scheduledEndDateTime = {
+            dateTime: endVal + ":00",
+            timeZone: "UTC"
+        };
+    }
+    
+    try {
+        const response = await fetch(`/api/tenants/${tenantId}/users/${userId}/auto-replies`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        if (response.ok) {
+            alert('Configuración OOF actualizada correctamente');
+            bootstrap.Modal.getInstance(document.getElementById('autoRepliesModal')).hide();
+        } else {
+            const err = await response.json();
+            alert('Error al guardar: ' + err.detail);
+        }
+    } catch (e) {
+        alert('Error de conexión');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = 'Guardar Configuración';
+    }
+}
+
+// --- Inactive Licenses Report ---
+async function loadInactiveLicenses() {
+    const listBody = document.getElementById('inactiveLicensesList');
+    listBody.innerHTML = `
+        <tr>
+            <td colspan="4" class="text-center py-4">
+                <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                <span>Analizando sign-ins en Entra ID...</span>
+            </td>
+        </tr>
+    `;
+    
+    try {
+        const response = await fetch(`/api/tenants/{{ tenant.id }}/inactive-licenses`);
+        if (!response.ok) throw new Error('No se pudo ejecutar el reporte');
+        
+        const inactive = await response.json();
+        listBody.innerHTML = '';
+        
+        if (inactive.length === 0) {
+            listBody.innerHTML = `
+                <tr>
+                    <td colspan="4" class="text-center py-4 text-success fw-bold">
+                        <i class="bi bi-shield-check me-1"></i> ¡Excelente! Todos los usuarios licenciados han iniciado sesión en los últimos 30 días.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+        
+        inactive.forEach(u => {
+            const tr = document.createElement('tr');
+            tr.className = 'bg-white';
+            
+            const lastSeenStr = u.lastSignIn 
+                ? new Date(u.lastSignIn).toLocaleDateString()
+                : '<span class="text-danger fw-bold">Nunca ha ingresado</span>';
+                
+            const lics = u.licenses.map(l => `<span class="badge bg-secondary bg-opacity-10 text-secondary extra-small me-1">${l.substring(0, 10)}...</span>`).join('');
+            
+            tr.innerHTML = `
+                <td class="ps-3 fw-bold text-dark">${u.displayName}</td>
+                <td><code class="small text-secondary">${u.userPrincipalName}</code></td>
+                <td><small class="text-secondary fw-semibold">${lastSeenStr}</small></td>
+                <td>${lics || 'Ninguna'}</td>
+            `;
+            listBody.appendChild(tr);
+        });
+    } catch (e) {
+        listBody.innerHTML = `
+            <tr>
+                <td colspan="4" class="text-center py-4 text-danger">
+                    Error al escanear: ${e.message}
+                </td>
+            </tr>
+        `;
+    }
+}
 </script>
 {% endblock %}
+

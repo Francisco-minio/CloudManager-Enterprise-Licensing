@@ -8,9 +8,20 @@ from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from pydantic import BaseModel
+from typing import Any
+
+class AssignLicensesSchema(BaseModel):
+    add_licenses: list[dict[str, Any]]
+    remove_licenses: list[str]
+
+class GroupMemberSchema(BaseModel):
+    user_graph_id: str
+
 from sqlalchemy.orm import joinedload, selectinload
 from app.db.session import get_db, async_session, engine
-from app.db.models import Tenant, License, User, SyncLog, UserLicense, Base
+from app.db.models import Tenant, License, User, SyncLog, UserLicense, Base, AuditLog
+from app.services.graph_service import GraphService
+
 from app.services.sync_engine import SyncEngine
 from app.core.license_mapper import get_friendly_name, is_free_license
 from app.core.config import settings, crypto
@@ -177,6 +188,37 @@ async def platform_settings(request: Request, db: AsyncSession = Depends(get_db)
     
     return templates.TemplateResponse(request=request, name="platform_users.html", context={
         "platform_users": platform_users,
+        "current_user": user
+    })
+
+@app.get("/audit-logs")
+async def audit_logs_page(request: Request, db: AsyncSession = Depends(get_db)):
+    user = request.session.get("user")
+    if not user:
+        return RedirectResponse(url="/login")
+    
+    # Obtener logs ordenados por fecha descendente
+    stmt = select(AuditLog).options(joinedload(AuditLog.tenant)).order_by(AuditLog.created_at.desc())
+    res = await db.execute(stmt)
+    logs = res.scalars().all()
+    
+    # También necesitamos los tenants para el filtro
+    stmt_tenants = select(Tenant)
+    res_tenants = await db.execute(stmt_tenants)
+    tenants = res_tenants.scalars().all()
+    
+    return templates.TemplateResponse(request=request, name="audit_logs.html", context={
+        "logs": logs,
+        "tenants": tenants,
+        "current_user": user
+    })
+
+@app.get("/changelog")
+async def changelog_page(request: Request):
+    user = request.session.get("user")
+    if not user:
+        return RedirectResponse(url="/login")
+    return templates.TemplateResponse(request=request, name="changelog.html", context={
         "current_user": user
     })
 
@@ -386,10 +428,10 @@ async def list_users(request: Request, db: AsyncSession = Depends(get_db)):
     user = request.session.get("user")
     if not user:
         return RedirectResponse(url="/login")
-    stmt = select(User).options(
+    stmt = select(User).join(User.tenant).options(
         joinedload(User.tenant),
         selectinload(User.licenses).joinedload(UserLicense.license)
-    )
+    ).order_by(Tenant.name, User.display_name)
     res = await db.execute(stmt)
     users = res.scalars().all()
     return templates.TemplateResponse(request=request, name="users.html", context={"users": users, "current_user": user})
@@ -473,7 +515,7 @@ async def tenant_detail(id: str, request: Request, db: AsyncSession = Depends(ge
 
     stmt = select(Tenant).where(Tenant.id == tenant_uuid).options(
         selectinload(Tenant.licenses).selectinload(License.user_assignments).joinedload(UserLicense.user),
-        selectinload(Tenant.users),
+        selectinload(Tenant.users).selectinload(User.licenses).joinedload(UserLicense.license),
         selectinload(Tenant.sync_logs),
         selectinload(Tenant.billing_records)
     )
@@ -608,7 +650,757 @@ async def get_tenant_api(id: str, db: AsyncSession = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.get("/api/users/{id}/details")
+async def get_user_details_api(id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator:
+        raise HTTPException(status_code=401, detail="No autenticado")
+    
+    import uuid
+    import asyncio
+    try:
+        user_uuid = uuid.UUID(id)
+        stmt = select(User).where(User.id == user_uuid).options(joinedload(User.tenant))
+        res = await db.execute(stmt)
+        db_user = res.scalar_one_or_none()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+        tenant = db_user.tenant
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        
+        # Parallel fetch from Microsoft Graph
+        profile, memberships, manager, licenses, tenant_skus = await asyncio.gather(
+            graph.fetch_user_extended_profile(db_user.graph_id),
+            graph.fetch_user_member_of(db_user.graph_id),
+            graph.fetch_user_manager(db_user.graph_id),
+            graph.fetch_user_license_details(db_user.graph_id),
+            graph.fetch_licenses()
+        )
+        
+        # Parse memberships: split into Groups vs Directory Roles
+        groups = []
+        roles = []
+        for member in memberships:
+            odType = member.get("@odata.type", "")
+            if "#microsoft.graph.directoryRole" in odType:
+                roles.append({
+                    "id": member.get("id"),
+                    "name": member.get("displayName"),
+                    "description": member.get("description")
+                })
+            else:
+                groups.append({
+                    "id": member.get("id"),
+                    "name": member.get("displayName"),
+                    "description": member.get("description"),
+                    "mail": member.get("mail"),
+                    "type": member.get("groupTypes", [])
+                })
+                
+        # Map license friendly names
+        mapped_licenses = []
+        sku_map = {sku.get("skuId"): sku for sku in tenant_skus}
+        for lic in licenses:
+            sku_id = lic.get("skuId")
+            sku_info = sku_map.get(sku_id, {})
+            sku_part = sku_info.get("skuPartNumber", "Unknown SKU")
+            
+            mapped_licenses.append({
+                "skuId": sku_id,
+                "skuPartNumber": sku_part,
+                "friendlyName": sku_part
+            })
+            
+        return {
+            "profile": profile,
+            "manager": manager,
+            "groups": groups,
+            "roles": roles,
+            "licenses": mapped_licenses,
+            "tenantName": tenant.name
+        }
+    except Exception as e:
+        logger.error(f"Error getting user details: {e}", exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
+
+# --- User Actions Endpoints (CIPP Phase 1) ---
+
+@app.post("/api/users/{id}/toggle-status")
+async def toggle_user_status_api(id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator or operator.get("role") not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    
+    import uuid
+    try:
+        user_uuid = uuid.UUID(id)
+        stmt = select(User).where(User.id == user_uuid).options(joinedload(User.tenant))
+        res = await db.execute(stmt)
+        db_user = res.scalar_one_or_none()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+        
+        tenant = db_user.tenant
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        
+        new_status = not db_user.is_active
+        success = await graph.update_user_status(db_user.graph_id, new_status)
+        
+        if not success:
+            raise HTTPException(status_code=400, detail="No se pudo actualizar el estado en Microsoft 365")
+            
+        db_user.is_active = new_status
+        
+        log = AuditLog(
+            tenant_id=tenant.id,
+            operator_email=operator.get("email"),
+            action="TOGGLE_STATUS",
+            target_upn=db_user.upn,
+            status="SUCCESS",
+            details=f"Cuenta {'habilitada' if new_status else 'deshabilitada'}"
+        )
+        db.add(log)
+        await db.commit()
+        return {"message": f"Usuario {'activado' if new_status else 'desactivado'} con éxito", "is_active": new_status}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/users/{id}/reset-password")
+async def reset_user_password_api(id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator or operator.get("role") not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+        
+    import uuid
+    import secrets
+    import string
+    try:
+        user_uuid = uuid.UUID(id)
+        stmt = select(User).where(User.id == user_uuid).options(joinedload(User.tenant))
+        res = await db.execute(stmt)
+        db_user = res.scalar_one_or_none()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+            
+        # Generar contraseña temporal segura
+        alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+        # Asegurar longitud de 12
+        new_pass = "".join(secrets.choice(alphabet) for _ in range(12))
+        
+        tenant = db_user.tenant
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        
+        success = await graph.reset_password(db_user.graph_id, new_pass)
+        if not success:
+            raise HTTPException(status_code=400, detail="No se pudo restablecer la contraseña en Microsoft 365")
+            
+        log = AuditLog(
+            tenant_id=tenant.id,
+            operator_email=operator.get("email"),
+            action="RESET_PASSWORD",
+            target_upn=db_user.upn,
+            status="SUCCESS",
+            details="Contraseña restablecida exitosamente"
+        )
+        db.add(log)
+        await db.commit()
+        return {"message": "Contraseña restablecida", "password": new_pass}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/users/{id}/offboard")
+async def offboard_user_api(id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator or operator.get("role") not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+        
+    import uuid
+    try:
+        user_uuid = uuid.UUID(id)
+        stmt = select(User).where(User.id == user_uuid).options(
+            joinedload(User.tenant),
+            selectinload(User.licenses).joinedload(UserLicense.license)
+        )
+        res = await db.execute(stmt)
+        db_user = res.scalar_one_or_none()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+            
+        tenant = db_user.tenant
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        
+        # 1. Obtener licencias asignadas
+        lic_details = await graph.fetch_user_license_details(db_user.graph_id)
+        sku_ids = [l["skuId"] for l in lic_details]
+        
+        steps_taken = []
+        
+        # 2. Deshabilitar cuenta
+        status_ok = await graph.update_user_status(db_user.graph_id, False)
+        steps_taken.append(f"Bloqueo de cuenta: {'OK' if status_ok else 'FALLÓ'}")
+        
+        # 3. Revocar sesiones
+        sessions_ok = await graph.revoke_sessions(db_user.graph_id)
+        steps_taken.append(f"Revocación de sesiones: {'OK' if sessions_ok else 'FALLÓ'}")
+        
+        # 4. Remover licencias
+        licenses_ok = True
+        if sku_ids:
+            licenses_ok = await graph.remove_licenses(db_user.graph_id, sku_ids)
+            steps_taken.append(f"Remoción de licencias ({len(sku_ids)}): {'OK' if licenses_ok else 'FALLÓ'}")
+        else:
+            steps_taken.append("No tenía licencias asignadas")
+            
+        overall_status = "SUCCESS" if (status_ok and sessions_ok and licenses_ok) else "FAILED"
+        
+        if status_ok:
+            db_user.is_active = False
+            
+        # Remover localmente asignaciones
+        if licenses_ok:
+            for assignment in db_user.licenses:
+                await db.delete(assignment)
+                
+        log = AuditLog(
+            tenant_id=tenant.id,
+            operator_email=operator.get("email"),
+            action="OFFBOARD_USER",
+            target_upn=db_user.upn,
+            status=overall_status,
+            details=", ".join(steps_taken)
+        )
+        db.add(log)
+        await db.commit()
+        
+        if overall_status == "FAILED":
+            raise HTTPException(status_code=400, detail=f"Offboarding incompleto: {', '.join(steps_taken)}")
+            
+        return {"message": "Offboarding ejecutado correctamente", "steps": steps_taken}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/users/{id}/assign-licenses")
+async def assign_user_licenses_api(id: str, data: AssignLicensesSchema, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator or operator.get("role") not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+
+    import uuid
+    try:
+        user_uuid = uuid.UUID(id)
+        stmt = select(User).where(User.id == user_uuid).options(
+            joinedload(User.tenant),
+            selectinload(User.licenses).joinedload(UserLicense.license)
+        )
+        res = await db.execute(stmt)
+        db_user = res.scalar_one_or_none()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+        tenant = db_user.tenant
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+
+        # Call Graph
+        success = await graph.assign_user_licenses(db_user.graph_id, data.add_licenses, data.remove_licenses)
+        if not success:
+            raise HTTPException(status_code=400, detail="Error al actualizar licencias en Microsoft 365")
+
+        # Locally synchronize DB
+        if data.remove_licenses:
+            for assignment in db_user.licenses:
+                if assignment.license.sku_id in data.remove_licenses:
+                    await db.delete(assignment)
+
+        if data.add_licenses:
+            for item in data.add_licenses:
+                sku_id = item["skuId"]
+                stmt_l = select(License).where(License.tenant_id == tenant.id, License.sku_id == sku_id)
+                res_l = await db.execute(stmt_l)
+                db_license = res_l.scalar_one_or_none()
+                if db_license:
+                    already_assigned = any(ul.license.sku_id == sku_id for ul in db_user.licenses)
+                    if not already_assigned:
+                        new_ul = UserLicense(user_id=db_user.id, license_id=db_license.id)
+                        db.add(new_ul)
+
+        # Register audit log
+        added_skus = [l.get("skuId") for l in data.add_licenses]
+        log = AuditLog(
+            tenant_id=tenant.id,
+            operator_email=operator.get("email"),
+            action="UPDATE_LICENSES",
+            target_upn=db_user.upn,
+            status="SUCCESS",
+            details=f"Añadidas: {', '.join(added_skus) if added_skus else 'Ninguna'}, Removidas: {', '.join(data.remove_licenses) if data.remove_licenses else 'Ninguna'}"
+        )
+        db.add(log)
+        await db.commit()
+        return {"message": "Licencias actualizadas correctamente"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/tenants/{id}/groups")
+async def get_tenant_groups_api(id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator:
+        raise HTTPException(status_code=401, detail="No autenticado")
+        
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(id)
+        stmt = select(Tenant).where(Tenant.id == tenant_uuid)
+        res = await db.execute(stmt)
+        tenant = res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+            
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        groups = await graph.fetch_groups()
+        return groups
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/tenants/{id}/licenses")
+async def get_tenant_licenses_api(id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator:
+        raise HTTPException(status_code=401, detail="No autenticado")
+    
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(id)
+        stmt = select(License).where(License.tenant_id == tenant_uuid)
+        res = await db.execute(stmt)
+        licenses = res.scalars().all()
+        return [
+            {
+                "sku_id": l.sku_id,
+                "sku_part_number": l.sku_part_number,
+                "friendly_name": get_friendly_name(l.sku_part_number),
+                "available": l.total_units - l.consumed_units
+            }
+            for l in licenses
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/groups/{group_id}/members")
+async def get_group_members_api(group_id: str, tenant_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator:
+        raise HTTPException(status_code=401, detail="No autenticado")
+        
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(tenant_id)
+        stmt = select(Tenant).where(Tenant.id == tenant_uuid)
+        res = await db.execute(stmt)
+        tenant = res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+            
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        members = await graph.fetch_group_members(group_id)
+        return members
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/groups/{group_id}/members")
+async def add_group_member_api(group_id: str, tenant_id: str, data: GroupMemberSchema, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator or operator.get("role") not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+        
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(tenant_id)
+        stmt = select(Tenant).where(Tenant.id == tenant_uuid)
+        res = await db.execute(stmt)
+        tenant = res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+            
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        
+        success = await graph.add_group_member(group_id, data.user_graph_id)
+        if not success:
+            raise HTTPException(status_code=400, detail="Error al agregar miembro en Microsoft 365")
+            
+        log = AuditLog(
+            tenant_id=tenant.id,
+            operator_email=operator.get("email"),
+            action="ADD_GROUP_MEMBER",
+            target_upn=f"Grupo: {group_id}",
+            status="SUCCESS",
+            details=f"Usuario {data.user_graph_id} añadido"
+        )
+        db.add(log)
+        await db.commit()
+        return {"message": "Usuario añadido al grupo"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/groups/{group_id}/members/{user_graph_id}")
+async def remove_group_member_api(group_id: str, user_graph_id: str, tenant_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator or operator.get("role") not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+        
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(tenant_id)
+        stmt = select(Tenant).where(Tenant.id == tenant_uuid)
+        res = await db.execute(stmt)
+        tenant = res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+            
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        
+        success = await graph.remove_group_member(group_id, user_graph_id)
+        if not success:
+            raise HTTPException(status_code=400, detail="Error al remover miembro en Microsoft 365")
+            
+        log = AuditLog(
+            tenant_id=tenant.id,
+            operator_email=operator.get("email"),
+            action="REMOVE_GROUP_MEMBER",
+            target_upn=f"Grupo: {group_id}",
+            status="SUCCESS",
+            details=f"Usuario {user_graph_id} removido"
+        )
+        db.add(log)
+        await db.commit()
+        return {"message": "Usuario removido del grupo"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+# --- Shared Mailboxes Endpoints ---
+
+@app.get("/api/tenants/{id}/shared-mailboxes")
+async def get_tenant_shared_mailboxes_api(id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator:
+        raise HTTPException(status_code=401, detail="No autenticado")
+        
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(id)
+        stmt = select(Tenant).where(Tenant.id == tenant_uuid)
+        res = await db.execute(stmt)
+        tenant = res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+            
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        mailboxes = await graph.fetch_shared_mailboxes()
+        return mailboxes
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/tenants/{tenant_id}/shared-mailboxes/{user_id}/delegates")
+async def get_shared_mailbox_delegates_api(tenant_id: str, user_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator:
+        raise HTTPException(status_code=401, detail="No autenticado")
+        
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(tenant_id)
+        stmt = select(Tenant).where(Tenant.id == tenant_uuid)
+        res = await db.execute(stmt)
+        tenant = res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+            
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        delegates = await graph.fetch_mailbox_delegates(user_id)
+        return delegates
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+class AddDelegateSchema(BaseModel):
+    delegate_email: str
+    delegate_name: str
+    role: str = "editor"
+
+@app.post("/api/tenants/{tenant_id}/shared-mailboxes/{user_id}/delegates")
+async def add_shared_mailbox_delegate_api(tenant_id: str, user_id: str, data: AddDelegateSchema, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator or operator.get("role") not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+        
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(tenant_id)
+        stmt = select(Tenant).where(Tenant.id == tenant_uuid)
+        res = await db.execute(stmt)
+        tenant = res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+            
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        
+        success = await graph.add_mailbox_delegate(user_id, data.delegate_email, data.delegate_name, data.role)
+        if not success:
+            raise HTTPException(status_code=400, detail="Error al agregar delegado en Microsoft 365")
+            
+        log = AuditLog(
+            tenant_id=tenant.id,
+            operator_email=operator.get("email"),
+            action="ADD_DELEGATE",
+            target_upn=f"Mailbox UPN/ID: {user_id}",
+            status="SUCCESS",
+            details=f"Delegado {data.delegate_email} (Rol: {data.role}) añadido"
+        )
+        db.add(log)
+        await db.commit()
+        return {"message": "Delegado agregado correctamente"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/api/tenants/{tenant_id}/shared-mailboxes/{user_id}/delegates/{delegate_id}")
+async def remove_shared_mailbox_delegate_api(tenant_id: str, user_id: str, delegate_id: str, delegate_email: str, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator or operator.get("role") not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+        
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(tenant_id)
+        stmt = select(Tenant).where(Tenant.id == tenant_uuid)
+        res = await db.execute(stmt)
+        tenant = res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+            
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        
+        success = await graph.remove_mailbox_delegate(user_id, delegate_id)
+        if not success:
+            raise HTTPException(status_code=400, detail="Error al remover delegado en Microsoft 365")
+            
+        log = AuditLog(
+            tenant_id=tenant.id,
+            operator_email=operator.get("email"),
+            action="REMOVE_DELEGATE",
+            target_upn=f"Mailbox UPN/ID: {user_id}",
+            status="SUCCESS",
+            details=f"Delegado {delegate_email} (ID: {delegate_id}) removido"
+        )
+        db.add(log)
+        await db.commit()
+        return {"message": "Delegado removido correctamente"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+class CreateSharedMailboxSchema(BaseModel):
+    display_name: str
+    alias: str
+    domain: str
+
+@app.post("/api/tenants/{id}/shared-mailboxes/create")
+async def create_shared_mailbox_api(id: str, data: CreateSharedMailboxSchema, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator or operator.get("role") not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+        
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(id)
+        stmt = select(Tenant).where(Tenant.id == tenant_uuid)
+        res = await db.execute(stmt)
+        tenant = res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+            
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        
+        success = await graph.create_shared_mailbox(data.display_name, data.alias, data.domain)
+        if not success:
+            raise HTTPException(status_code=400, detail="Error al crear buzón compartido en Microsoft 365")
+            
+        log = AuditLog(
+            tenant_id=tenant.id,
+            operator_email=operator.get("email"),
+            action="CREATE_SHARED_MAILBOX",
+            target_upn=f"{data.alias}@{data.domain}",
+            status="SUCCESS",
+            details=f"Buzón compartido '{data.display_name}' creado"
+        )
+        db.add(log)
+        await db.commit()
+        return {"message": "Buzón compartido creado correctamente"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+# --- Compliance Engine Endpoints ---
+
+@app.get("/api/tenants/{id}/compliance-report")
+async def get_tenant_compliance_report_api(id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator:
+        raise HTTPException(status_code=401, detail="No autenticado")
+        
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(id)
+        stmt = select(Tenant).where(Tenant.id == tenant_uuid)
+        res = await db.execute(stmt)
+        tenant = res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+            
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        metrics = await graph.fetch_security_compliance_metrics()
+        return metrics
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# --- Inactive Users & Auto Replies Endpoints ---
+
+@app.get("/api/tenants/{id}/inactive-licenses")
+async def get_tenant_inactive_licenses_api(id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator:
+        raise HTTPException(status_code=401, detail="No autenticado")
+        
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(id)
+        stmt = select(Tenant).where(Tenant.id == tenant_uuid)
+        res = await db.execute(stmt)
+        tenant = res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+            
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        inactive = await graph.fetch_inactive_users_report(days=30)
+        return inactive
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/api/tenants/{tenant_id}/users/{user_id}/auto-replies")
+async def get_user_auto_replies_api(tenant_id: str, user_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator:
+        raise HTTPException(status_code=401, detail="No autenticado")
+        
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(tenant_id)
+        stmt = select(Tenant).where(Tenant.id == tenant_uuid)
+        res = await db.execute(stmt)
+        tenant = res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+            
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        
+        user_stmt = select(User).where(User.id == uuid.UUID(user_id))
+        user_res = await db.execute(user_stmt)
+        db_user = user_res.scalar_one_or_none()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+            
+        replies = await graph.fetch_mailbox_automatic_replies(db_user.graph_id)
+        return replies
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+class AutoRepliesSchema(BaseModel):
+    status: str
+    externalAudience: str = "all"
+    internalReplyMessage: str
+    externalReplyMessage: str
+    scheduledStartDateTime: dict | None = None
+    scheduledEndDateTime: dict | None = None
+
+@app.post("/api/tenants/{tenant_id}/users/{user_id}/auto-replies")
+async def update_user_auto_replies_api(tenant_id: str, user_id: str, data: AutoRepliesSchema, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator or operator.get("role") not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+        
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(tenant_id)
+        stmt = select(Tenant).where(Tenant.id == tenant_uuid)
+        res = await db.execute(stmt)
+        tenant = res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+            
+        secret = crypto.decrypt(tenant.client_secret_encrypted)
+        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        
+        user_stmt = select(User).where(User.id == uuid.UUID(user_id))
+        user_res = await db.execute(user_stmt)
+        db_user = user_res.scalar_one_or_none()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+            
+        settings = {
+            "status": data.status,
+            "externalAudience": data.externalAudience,
+            "internalReplyMessage": data.internalReplyMessage,
+            "externalReplyMessage": data.externalReplyMessage
+        }
+        if data.scheduledStartDateTime:
+            settings["scheduledStartDateTime"] = data.scheduledStartDateTime
+        if data.scheduledEndDateTime:
+            settings["scheduledEndDateTime"] = data.scheduledEndDateTime
+            
+        success = await graph.update_mailbox_automatic_replies(db_user.graph_id, settings)
+        if not success:
+            raise HTTPException(status_code=400, detail="Error al actualizar respuestas automáticas en Microsoft 365")
+            
+        log = AuditLog(
+            tenant_id=tenant.id,
+            operator_email=operator.get("email"),
+            action="UPDATE_AUTO_REPLIES",
+            target_upn=db_user.upn,
+            status="SUCCESS",
+            details=f"Fuera de oficina: {data.status}"
+        )
+        db.add(log)
+        await db.commit()
+        return {"message": "Respuestas automáticas actualizadas correctamente"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
 # --- Billing Endpoints ---
+
+
 
 @app.post("/api/billing")
 async def save_billing(data: BillingSchema, request: Request, db: AsyncSession = Depends(get_db)):

@@ -5,6 +5,7 @@ from datetime import datetime
 from sqlalchemy.orm import selectinload, joinedload
 from app.db.models import Tenant, User, License, UserLicense, SyncLog
 from app.services.graph_service import GraphService
+from app.services.notification_service import NotificationService
 from app.core.config import crypto
 import logging
 
@@ -52,6 +53,14 @@ class SyncEngine:
                 await self.db.flush()
                 curr_license_map[sku_id] = db_license.id
 
+            # Fetch Global Admins to check for security alerts
+            try:
+                ms_admins = await graph.fetch_global_administrators()
+                ms_admin_ids = {adm["id"] for adm in ms_admins}
+            except Exception as admin_err:
+                logger.error(f"Error fetching global admins during sync: {admin_err}")
+                ms_admin_ids = set()
+
             # 3. Sync Users
             ms_users = await graph.fetch_users()
             processed_users = 0
@@ -61,19 +70,48 @@ class SyncEngine:
                 res = await self.db.execute(stmt)
                 db_user = res.scalar_one_or_none()
 
+                is_now_admin = u["id"] in ms_admin_ids
+
                 if not db_user:
                     db_user = User(
                         tenant_id=tenant.id,
                         graph_id=u["id"],
                         upn=u["userPrincipalName"],
-                        display_name=u["displayName"]
+                        display_name=u["displayName"],
+                        is_global_admin=is_now_admin
                     )
                     self.db.add(db_user)
                     await self.db.flush()
                 else:
+                    # Alertas de seguridad si se asignó rol de Admin Global
+                    if is_now_admin and not db_user.is_global_admin:
+                        try:
+                            notification_service = NotificationService(self.db)
+                            config = await notification_service.get_config()
+                            if config:
+                                alert_msg = (
+                                    f"<b>⚠️ ALERTA DE SEGURIDAD CRÍTICA</b>\n\n"
+                                    f"Se ha detectado un nuevo <b>Administrador Global</b> en el cliente <b>{tenant.name}</b>:\n\n"
+                                    f"• Nombre: {db_user.display_name}\n"
+                                    f"• Correo/UPN: <code>{db_user.upn}</code>\n"
+                                    f"• Fecha/Hora: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                                )
+                                if config.telegram_enabled:
+                                    await notification_service.send_telegram(alert_msg, config)
+                                if config.email_enabled:
+                                    await notification_service.send_email(
+                                        f"ALERTA SEGURIDAD: Nuevo Global Admin en {tenant.name}",
+                                        alert_msg,
+                                        config.smtp_user,
+                                        config
+                                    )
+                        except Exception as alert_err:
+                            logger.error(f"Error sending security alert: {alert_err}")
+
                     db_user.upn = u["userPrincipalName"]
                     db_user.display_name = u["displayName"]
                     db_user.is_active = u.get("accountEnabled", True)
+                    db_user.is_global_admin = is_now_admin
                 
                 db_user.last_seen = datetime.utcnow()
                 

@@ -47,6 +47,7 @@ class User(Base):
     upn = Column(String(255), nullable=False)
     display_name = Column(String(255))
     is_active = Column(Boolean, default=True)
+    is_global_admin = Column(Boolean, default=False)
     last_seen = Column(DateTime, default=datetime.utcnow)
 
     tenant = relationship("Tenant", back_populates="users")
@@ -130,3 +131,18 @@ class NotificationConfig(Base):
     notify_days_before = Column(String(100), default="30,15,5") # Días antes del vencimiento
     
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    operator_email = Column(String(255), nullable=False)
+    action = Column(String(100), nullable=False)     # RESET_PASSWORD, TOGGLE_STATUS, OFFBOARD_USER
+    target_upn = Column(String(255), nullable=True)
+    status = Column(String(50))                      # SUCCESS, FAILED
+    details = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    tenant = relationship("Tenant")
+
