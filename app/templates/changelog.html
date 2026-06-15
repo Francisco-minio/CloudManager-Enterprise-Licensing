@@ -35,6 +35,12 @@
             <li><strong>Alertas Inmediatas</strong>: Envío automático de notificaciones a través de los canales configurados (Telegram y correo electrónico) ante cualquier asignación detectada.</li>
         </ul>
 
+        <h5 class="fw-bold text-dark mt-4 mb-3"><i class="bi bi-key-fill text-primary me-2"></i> 4. Control de Restablecimiento de Contraseña</h5>
+        <ul>
+            <li><strong>Contraseña Personalizada o Automática</strong>: Opción para ingresar una contraseña manual o autogenerar una clave aleatoria segura de 12 caracteres.</li>
+            <li><strong>Exigir Cambio al Iniciar Sesión</strong>: Switch interactivo para decidir si se fuerza al usuario a cambiar su contraseña al ingresar por primera vez (integrado con <code>forceChangePasswordNextSignIn</code>).</li>
+        </ul>
+
         <hr class="my-4">
 
         <h3 class="fw-bold text-primary mb-4">Versión 2.0.0 (Fase 2 de Implementación)</h3>
@@ -119,7 +125,7 @@
         <h6 class="fw-bold text-dark mb-2">Código del Script (PowerShell):</h6>
         <pre class="bg-light p-3 rounded-3 border text-dark font-monospace" style="font-size: 0.85rem; max-height: 400px; overflow-y: auto;">
 # 1. Conectar al Tenant del Cliente
-Connect-MgGraph -Scopes "Application.ReadWrite.All", "AppRoleAssignment.ReadWrite.All"
+Connect-MgGraph -Scopes "Application.ReadWrite.All", "AppRoleAssignment.ReadWrite.All", "RoleManagement.ReadWrite.Directory", "Directory.ReadWrite.All"
 
 $AppName = "CloudManager-EnterpriseLicensing"
 $RequiredPermissions = @(
@@ -152,7 +158,17 @@ $Secret = Add-MgApplicationPassword -ApplicationId $App.Id -PasswordCredential @
     EndDateTime = (Get-Date).AddYears(2)
 }
 
-# 5. Mostrar credenciales finales
+# 5. Asignar Rol de Directorio: Administrador de Usuarios
+Write-Host "Asignando Rol de Administrador de Usuarios a la Aplicación..."
+$RoleName = "User Administrator"
+$Role = Get-MgDirectoryRole | Where-Object {$_.DisplayName -eq $RoleName}
+if (!$Role) {
+    $Template = Get-MgDirectoryRoleTemplate | Where-Object {$_.DisplayName -eq $RoleName}
+    $Role = New-MgDirectoryRole -DirectoryRoleTemplateId $Template.Id
+}
+New-MgDirectoryRoleMemberByRef -DirectoryRoleId $Role.Id -OdataId "https://graph.microsoft.com/v1.0/directoryObjects/$($Sp.Id)"
+
+# 6. Mostrar credenciales finales
 Clear-Host
 Write-Host "REGISTRO COMPLETADO"
 Write-Host "Tenant ID: " (Get-MgContext).TenantId
