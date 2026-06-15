@@ -161,6 +161,44 @@
     </div>
 </div>
 
+<!-- Modal de Configuración para Restablecer Contraseña -->
+<div class="modal fade" id="passwordSetupModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="fw-bold"><i class="bi bi-key-fill text-warning me-2"></i>Restablecer Contraseña</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-secondary small mb-3">Configura las opciones para restablecer la contraseña de <strong id="setupPasswordUser"></strong>.</p>
+                
+                <div class="mb-3">
+                    <label class="form-label small fw-bold">Método de Generación</label>
+                    <select class="form-select rounded-3" id="passwordGenMethod" onchange="toggleCustomPasswordInput()" required>
+                        <option value="auto">Autogenerar contraseña segura (Recomendado)</option>
+                        <option value="custom">Ingresar contraseña manualmente</option>
+                    </select>
+                </div>
+                
+                <div class="mb-3" id="customPasswordContainer" style="display: none;">
+                    <label class="form-label small fw-bold">Contraseña Personalizada</label>
+                    <input type="text" class="form-control rounded-3" id="customPasswordInput" placeholder="Mínimo 8 caracteres, letras y números">
+                    <div class="form-text extra-small text-muted">Debe cumplir con los requerimientos de complejidad de Microsoft 365.</div>
+                </div>
+                
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="forcePasswordChangeCheckbox" checked>
+                    <label class="form-check-label small fw-semibold" for="forcePasswordChangeCheckbox">Exigir cambio de contraseña al iniciar sesión</label>
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-warning rounded-pill px-4 fw-bold" id="confirmResetPasswordBtn" onclick="executePasswordReset()">Restablecer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Modal Reset Password -->
 <div class="modal fade" id="passwordModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
@@ -380,6 +418,8 @@
             <div class="modal-footer bg-light border-0 py-3">
                 <button type="button" class="btn btn-secondary rounded-pill px-4" data-bs-dismiss="modal">Cerrar</button>
             </div>
+        </div>
+    </div>
 </div>
 
 <!-- Modal Respuestas Automáticas (Fuera de Oficina) -->
@@ -612,31 +652,88 @@ async function toggleUserStatus(userId) {
     }
 }
 
-async function resetPassword(userId, name) {
-    if (!confirm(`¿Desea restablecer la clave de ${name}?`)) return;
+let resetPasswordUserId = null;
+
+function resetPassword(userId, name) {
+    resetPasswordUserId = userId;
+    document.getElementById('setupPasswordUser').innerText = name;
+    document.getElementById('resetPasswordUser').innerText = name;
+    
+    // Reset setup modal form
+    document.getElementById('passwordGenMethod').value = 'auto';
+    document.getElementById('customPasswordInput').value = '';
+    document.getElementById('forcePasswordChangeCheckbox').checked = true;
+    toggleCustomPasswordInput();
+    
+    const setupModal = new bootstrap.Modal(document.getElementById('passwordSetupModal'));
+    setupModal.show();
+}
+
+function toggleCustomPasswordInput() {
+    const method = document.getElementById('passwordGenMethod').value;
+    const container = document.getElementById('customPasswordContainer');
+    const input = document.getElementById('customPasswordInput');
+    if (method === 'custom') {
+        container.style.display = 'block';
+        input.required = true;
+    } else {
+        container.style.display = 'none';
+        input.required = false;
+    }
+}
+
+async function executePasswordReset() {
+    const method = document.getElementById('passwordGenMethod').value;
+    const customPassword = document.getElementById('customPasswordInput').value;
+    const forceChange = document.getElementById('forcePasswordChangeCheckbox').checked;
+    
+    if (method === 'custom' && customPassword.length < 8) {
+        alert('La contraseña personalizada debe tener al menos 8 caracteres.');
+        return;
+    }
+    
+    const confirmBtn = document.getElementById('confirmResetPasswordBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Restableciendo...';
     
     try {
-        document.getElementById('resetPasswordUser').innerText = name;
-        document.getElementById('generatedPassword').innerText = 'Generando...';
+        const payload = {
+            force_change: forceChange
+        };
+        if (method === 'custom') {
+            payload.password = customPassword;
+        }
         
-        const myModal = new bootstrap.Modal(document.getElementById('passwordModal'));
-        myModal.show();
-        
-        const response = await fetch(`/api/users/${userId}/reset-password`, {
+        const response = await fetch(`/api/users/${resetPasswordUserId}/reset-password`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
+        
+        // Hide setup modal
+        bootstrap.Modal.getInstance(document.getElementById('passwordSetupModal')).hide();
         
         if (response.ok) {
             const data = await response.json();
-            document.getElementById('generatedPassword').innerText = data.password;
+            
+            // Show result modal
+            if (method === 'custom') {
+                document.getElementById('generatedPassword').innerText = customPassword;
+            } else {
+                document.getElementById('generatedPassword').innerText = data.password;
+            }
+            
+            const myModal = new bootstrap.Modal(document.getElementById('passwordModal'));
+            myModal.show();
         } else {
-            myModal.hide();
             const err = await response.json();
             alert("Error: " + err.detail);
         }
     } catch (e) {
         alert("Error de conexión al servidor");
+    } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = 'Restablecer';
     }
 }
 

@@ -769,8 +769,12 @@ async def toggle_user_status_api(id: str, request: Request, db: AsyncSession = D
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
+class ResetPasswordSchema(BaseModel):
+    password: str | None = None
+    force_change: bool = True
+
 @app.post("/api/users/{id}/reset-password")
-async def reset_user_password_api(id: str, request: Request, db: AsyncSession = Depends(get_db)):
+async def reset_user_password_api(id: str, request: Request, data: ResetPasswordSchema | None = None, db: AsyncSession = Depends(get_db)):
     operator = request.session.get("user")
     if not operator or operator.get("role") not in ["ADMIN", "SUPERADMIN"]:
         raise HTTPException(status_code=403, detail="No autorizado")
@@ -786,16 +790,23 @@ async def reset_user_password_api(id: str, request: Request, db: AsyncSession = 
         if not db_user:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
             
-        # Generar contraseña temporal segura
-        alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
-        # Asegurar longitud de 12
-        new_pass = "".join(secrets.choice(alphabet) for _ in range(12))
+        # Parse payload options
+        force_change = data.force_change if data is not None else True
+        custom_pass = data.password if data is not None else None
+        
+        if custom_pass:
+            new_pass = custom_pass
+        else:
+            # Generar contraseña temporal segura
+            alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+            # Asegurar longitud de 12
+            new_pass = "".join(secrets.choice(alphabet) for _ in range(12))
         
         tenant = db_user.tenant
         secret = crypto.decrypt(tenant.client_secret_encrypted)
         graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
         
-        success = await graph.reset_password(db_user.graph_id, new_pass)
+        success = await graph.reset_password(db_user.graph_id, new_pass, force_change=force_change)
         if not success:
             raise HTTPException(status_code=400, detail="No se pudo restablecer la contraseña en Microsoft 365")
             
@@ -805,7 +816,7 @@ async def reset_user_password_api(id: str, request: Request, db: AsyncSession = 
             action="RESET_PASSWORD",
             target_upn=db_user.upn,
             status="SUCCESS",
-            details="Contraseña restablecida exitosamente"
+            details=f"Contraseña restablecida exitosamente (Exigir cambio: {force_change})"
         )
         db.add(log)
         await db.commit()

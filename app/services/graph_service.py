@@ -90,13 +90,13 @@ class GraphService:
                 logger.error(f"Error updating user status: {await response.text()}")
                 return False
 
-    async def reset_password(self, user_id: str, new_password: str) -> bool:
+    async def reset_password(self, user_id: str, new_password: str, force_change: bool = True) -> bool:
         token = await self.get_token()
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         url = f"{self.base_url}/users/{user_id}"
         payload = {
             "passwordProfile": {
-                "forceChangePasswordNextSignIn": True,
+                "forceChangePasswordNextSignIn": force_change,
                 "password": new_password
             }
         }
