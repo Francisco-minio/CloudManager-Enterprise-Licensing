@@ -104,8 +104,9 @@ class GraphService:
             async with session.patch(url, headers=headers, json=payload) as response:
                 if response.status in [200, 204]:
                     return True
-                logger.error(f"Error resetting password: {await response.text()}")
-                return False
+                err_text = await response.text()
+                logger.error(f"Error resetting password: {err_text}")
+                raise Exception(f"Microsoft Graph Error ({response.status}): {err_text}")
 
     async def revoke_sessions(self, user_id: str) -> bool:
         token = await self.get_token()
