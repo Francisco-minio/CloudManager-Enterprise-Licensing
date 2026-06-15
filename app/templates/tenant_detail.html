@@ -1527,7 +1527,13 @@ async function executePasswordReset() {
         });
         
         // Hide setup modal
-        bootstrap.Modal.getInstance(document.getElementById('passwordSetupModal')).hide();
+        const setupModal = bootstrap.Modal.getInstance(document.getElementById('passwordSetupModal'));
+        if (setupModal) {
+            setupModal.hide();
+        }
+        
+        // Wait for setup modal transition to finish
+        await new Promise(resolve => setTimeout(resolve, 400));
         
         if (response.ok) {
             const data = await response.json();
