@@ -54,7 +54,7 @@
                                 </span>
                             </div>
                             <div>
-                                <div class="fw-bold">{{ user.display_name }}</div>
+                                <div class="fw-bold" id="displayname-{{ user.id }}">{{ user.display_name }}</div>
                                 <div class="text-muted extra-small">ID: {{ user.graph_id[:8] }}</div>
                             </div>
                         </div>
@@ -385,7 +385,8 @@
                                         <div class="row g-2">
                                             <div class="col-6"><small class="text-secondary">Email de M365:</small> <span class="d-block fw-semibold small" id="lbl-mail">N/A</span></div>
                                             <div class="col-6"><small class="text-secondary">Teléfono Móvil:</small> <span class="d-block fw-semibold small" id="lbl-mobilePhone">N/A</span></div>
-                                            <div class="col-12 mt-2"><small class="text-secondary">Dirección Postal:</small> <span class="d-block fw-semibold small" id="lbl-address">N/A</span></div>
+                                            <div class="col-6 mt-2"><small class="text-secondary">Teléfono de la Oficina:</small> <span class="d-block fw-semibold small" id="lbl-businessPhone">N/A</span></div>
+                                            <div class="col-6 mt-2"><small class="text-secondary">Dirección Postal:</small> <span class="d-block fw-semibold small" id="lbl-address">N/A</span></div>
                                         </div>
                                     </div>
                                 </div>
@@ -416,7 +417,70 @@
                 </div>
             </div>
             <div class="modal-footer bg-light border-0 py-3">
+                {% if current_user.role in ['SUPERADMIN', 'ADMIN'] %}
+                <button type="button" class="btn btn-primary rounded-pill px-4" onclick="openEditProfileModal()">
+                    <i class="bi bi-pencil-square me-2"></i>Editar Contacto
+                </button>
+                {% endif %}
                 <button type="button" class="btn btn-secondary rounded-pill px-4" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Perfil / Información de Contacto -->
+<div class="modal fade" id="editProfileModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header bg-primary bg-gradient text-white border-0 py-3">
+                <h5 class="modal-title fw-bold mb-0">Administrar información de contacto</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <form id="editProfileForm">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Nombre</label>
+                            <input type="text" class="form-control rounded-3" id="edit-givenName" placeholder="Ej: Eduardo">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Apellidos</label>
+                            <input type="text" class="form-control rounded-3" id="edit-surname" placeholder="Ej: Bustos M.">
+                        </div>
+                        <div class="col-md-12">
+                            <label class="form-label small fw-bold text-secondary">Nombre para mostrar *</label>
+                            <input type="text" class="form-control rounded-3" id="edit-displayName" required placeholder="Ej: Eduardo Bustos M.">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Puesto</label>
+                            <input type="text" class="form-control rounded-3" id="edit-jobTitle" placeholder="Ej: Gerente de TI">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Departamento</label>
+                            <input type="text" class="form-control rounded-3" id="edit-department" placeholder="Ej: Soporte">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Oficina</label>
+                            <input type="text" class="form-control rounded-3" id="edit-officeLocation" placeholder="Ej: Oficina Central">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Teléfono de la oficina</label>
+                            <input type="text" class="form-control rounded-3" id="edit-businessPhone" placeholder="Ej: +5622345678">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Teléfono móvil</label>
+                            <input type="text" class="form-control rounded-3" id="edit-mobilePhone" placeholder="Ej: +56912345678">
+                        </div>
+                        <div class="col-md-12">
+                            <label class="form-label small fw-bold text-secondary">Dirección (Calle, Ciudad, etc.)</label>
+                            <input type="text" class="form-control rounded-3" id="edit-streetAddress" placeholder="Ej: Av. Providencia 1234">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-0 py-3">
+                <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary rounded-pill px-4" onclick="saveUserProfile()">Guardar cambios</button>
             </div>
         </div>
     </div>
@@ -878,6 +942,9 @@ async function runOffboard() {
     }
 }
 
+let currentDetailUserId = null;
+let currentDetailProfile = {};
+
 async function openUserDetails(userId, displayName) {
     document.getElementById('detailUserDisplayName').innerText = displayName;
     document.getElementById('detailUserUpn').innerText = '';
@@ -909,6 +976,10 @@ async function openUserDetails(userId, displayName) {
         const roles = data.roles || [];
         const licenses = data.licenses || [];
         
+        // Save to global variables
+        currentDetailUserId = userId;
+        currentDetailProfile = profile;
+        
         // General profile elements
         document.getElementById('detailUserUpn').innerText = profile.userPrincipalName || '';
         document.getElementById('lbl-jobTitle').innerText = profile.jobTitle || 'N/A';
@@ -918,6 +989,7 @@ async function openUserDetails(userId, displayName) {
         document.getElementById('lbl-usageLocation').innerText = profile.usageLocation || 'N/A';
         document.getElementById('lbl-mail').innerText = profile.mail || profile.userPrincipalName || 'N/A';
         document.getElementById('lbl-mobilePhone').innerText = profile.mobilePhone || 'N/A';
+        document.getElementById('lbl-businessPhone').innerText = (profile.businessPhones && profile.businessPhones.length > 0) ? profile.businessPhones[0] : 'N/A';
         
         // Address
         const addrParts = [profile.streetAddress, profile.city, profile.state, profile.country].filter(Boolean);
@@ -1026,6 +1098,106 @@ async function openUserDetails(userId, displayName) {
         document.getElementById('detailLoadingSpinner').style.display = 'none';
         alert("Error al cargar los detalles: " + e.message);
         modal.hide();
+    }
+}
+
+function openEditProfileModal() {
+    // Hide details modal first
+    const detailsModalEl = document.getElementById('userDetailsModal');
+    const detailsModal = bootstrap.Modal.getInstance(detailsModalEl);
+    if (detailsModal) {
+        detailsModal.hide();
+    }
+    
+    // Populate form fields with current profile values
+    document.getElementById('edit-givenName').value = currentDetailProfile.givenName || '';
+    document.getElementById('edit-surname').value = currentDetailProfile.surname || '';
+    document.getElementById('edit-displayName').value = currentDetailProfile.displayName || '';
+    document.getElementById('edit-jobTitle').value = currentDetailProfile.jobTitle || '';
+    document.getElementById('edit-department').value = currentDetailProfile.department || '';
+    document.getElementById('edit-officeLocation').value = currentDetailProfile.officeLocation || '';
+    
+    // Business phones: check if list, format as string
+    const phones = currentDetailProfile.businessPhones || [];
+    document.getElementById('edit-businessPhone').value = phones.length > 0 ? phones[0] : '';
+    
+    document.getElementById('edit-mobilePhone').value = currentDetailProfile.mobilePhone || '';
+    document.getElementById('edit-streetAddress').value = currentDetailProfile.streetAddress || '';
+    
+    // Open edit modal after a slight delay to avoid bootstrap modal collisions
+    setTimeout(() => {
+        const editModal = new bootstrap.Modal(document.getElementById('editProfileModal'));
+        editModal.show();
+    }, 400);
+}
+
+async function saveUserProfile() {
+    const displayName = document.getElementById('edit-displayName').value.trim();
+    if (!displayName) {
+        alert("El Nombre para mostrar es obligatorio.");
+        return;
+    }
+    
+    const givenName = document.getElementById('edit-givenName').value.trim() || null;
+    const surname = document.getElementById('edit-surname').value.trim() || null;
+    const jobTitle = document.getElementById('edit-jobTitle').value.trim() || null;
+    const department = document.getElementById('edit-department').value.trim() || null;
+    const officeLocation = document.getElementById('edit-officeLocation').value.trim() || null;
+    
+    const phoneVal = document.getElementById('edit-businessPhone').value.trim();
+    const businessPhones = phoneVal ? [phoneVal] : [];
+    
+    const mobilePhone = document.getElementById('edit-mobilePhone').value.trim() || null;
+    const streetAddress = document.getElementById('edit-streetAddress').value.trim() || null;
+    
+    const payload = {
+        givenName,
+        surname,
+        displayName,
+        jobTitle,
+        department,
+        officeLocation,
+        businessPhones,
+        mobilePhone,
+        streetAddress
+    };
+    
+    try {
+        const response = await fetch(`/api/users/${currentDetailUserId}/update-profile`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+        
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || "Error al actualizar el perfil.");
+        }
+        
+        // Hide edit modal
+        const editModalEl = document.getElementById('editProfileModal');
+        const editModal = bootstrap.Modal.getInstance(editModalEl);
+        if (editModal) {
+            editModal.hide();
+        }
+        
+        alert("¡Información de contacto actualizada con éxito!");
+        
+        // Update display name in table list
+        const tableUserNameEl = document.getElementById(`displayname-${currentDetailUserId}`);
+        if (tableUserNameEl) {
+            tableUserNameEl.innerText = displayName;
+        }
+        
+        // Reopen user details after a slight delay to show updated details
+        setTimeout(() => {
+            openUserDetails(currentDetailUserId, displayName);
+        }, 400);
+        
+    } catch (e) {
+        alert("Error: " + e.message);
     }
 }
 

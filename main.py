@@ -872,6 +872,80 @@ async def toggle_user_status_api(id: str, request: Request, db: AsyncSession = D
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
+class UpdateProfileSchema(BaseModel):
+    givenName: str | None = None
+    surname: str | None = None
+    displayName: str | None = None
+    jobTitle: str | None = None
+    department: str | None = None
+    officeLocation: str | None = None
+    businessPhones: list[str] | None = None
+    mobilePhone: str | None = None
+    streetAddress: str | None = None
+
+@app.post("/api/users/{id}/update-profile")
+async def update_user_profile_api(id: str, request: Request, data: UpdateProfileSchema, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator or operator.get("role") not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+        
+    import uuid
+    try:
+        user_uuid = uuid.UUID(id)
+        stmt = select(User).where(User.id == user_uuid).options(joinedload(User.tenant))
+        res = await db.execute(stmt)
+        db_user = res.scalar_one_or_none()
+        if not db_user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+            
+        tenant = db_user.tenant
+        graph = get_graph_service_for_tenant(tenant)
+        
+        payload = {}
+        if data.givenName is not None:
+            payload["givenName"] = data.givenName
+        if data.surname is not None:
+            payload["surname"] = data.surname
+        if data.displayName is not None:
+            payload["displayName"] = data.displayName
+        if data.jobTitle is not None:
+            payload["jobTitle"] = data.jobTitle
+        if data.department is not None:
+            payload["department"] = data.department
+        if data.officeLocation is not None:
+            payload["officeLocation"] = data.officeLocation
+        if data.businessPhones is not None:
+            payload["businessPhones"] = data.businessPhones
+        if data.mobilePhone is not None:
+            payload["mobilePhone"] = data.mobilePhone
+        if data.streetAddress is not None:
+            payload["streetAddress"] = data.streetAddress
+            
+        if not payload:
+            return {"message": "No se enviaron datos para actualizar"}
+            
+        success = await graph.update_user_profile(db_user.graph_id, payload)
+        if not success:
+            raise HTTPException(status_code=400, detail="No se pudo actualizar el perfil en Microsoft 365")
+            
+        if data.displayName:
+            db_user.display_name = data.displayName
+            
+        log = AuditLog(
+            tenant_id=tenant.id,
+            operator_email=operator.get("email"),
+            action="UPDATE_PROFILE",
+            target_upn=db_user.upn,
+            status="SUCCESS",
+            details=f"Información de contacto actualizada: {list(payload.keys())}"
+        )
+        db.add(log)
+        await db.commit()
+        return {"message": "Perfil de usuario actualizado con éxito"}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
 class ResetPasswordSchema(BaseModel):
     password: str | None = None
     force_change: bool = True

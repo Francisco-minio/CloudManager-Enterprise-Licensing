@@ -212,7 +212,8 @@ class GraphService:
         fields = (
             "id,displayName,userPrincipalName,accountEnabled,createdDateTime,userType,"
             "jobTitle,department,officeLocation,mobilePhone,usageLocation,"
-            "preferredLanguage,mailNickname,mail,streetAddress,city,state,country"
+            "preferredLanguage,mailNickname,mail,streetAddress,city,state,country,"
+            "givenName,surname,businessPhones"
         )
         url = f"{self.base_url}/users/{user_graph_id}?$select={fields}"
 
@@ -222,6 +223,18 @@ class GraphService:
                     return await response.json()
                 logger.error(f"Error fetching user extended profile: {await response.text()}")
                 return {}
+
+    async def update_user_profile(self, user_graph_id: str, profile_data: dict) -> bool:
+        token = await self.get_token()
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        url = f"{self.base_url}/users/{user_graph_id}"
+        async with aiohttp.ClientSession() as session:
+            async with session.patch(url, headers=headers, json=profile_data) as response:
+                if response.status in [200, 204]:
+                    return True
+                err_text = await response.text()
+                logger.error(f"Error updating user profile: {err_text}")
+                raise Exception(f"Microsoft Graph Error ({response.status}): {err_text}")
 
     async def fetch_user_member_of(self, user_graph_id: str) -> List[Dict[str, Any]]:
         token = await self.get_token()
