@@ -1435,6 +1435,98 @@ async def create_shared_mailbox_api(id: str, data: CreateSharedMailboxSchema, re
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
+class CreateUserSchema(BaseModel):
+    display_name: str
+    given_name: str | None = None
+    surname: str | None = None
+    mail_nickname: str
+    domain: str
+    password: str
+    force_change_password: bool = True
+    job_title: str | None = None
+    department: str | None = None
+    office_location: str | None = None
+    mobile_phone: str | None = None
+    street_address: str | None = None
+
+@app.get("/api/tenants/{id}/domains")
+async def get_tenant_domains_api(id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator:
+        raise HTTPException(status_code=401, detail="No autenticado")
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(id)
+        stmt = select(Tenant).where(Tenant.id == tenant_uuid)
+        res = await db.execute(stmt)
+        tenant = res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+        graph = get_graph_service_for_tenant(tenant)
+        domains = await graph.fetch_domains()
+        return {"domains": domains}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/tenants/{id}/users/create")
+async def create_tenant_user_api(id: str, data: CreateUserSchema, request: Request, db: AsyncSession = Depends(get_db)):
+    operator = request.session.get("user")
+    if not operator or operator.get("role") not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+        
+    import uuid
+    try:
+        tenant_uuid = uuid.UUID(id)
+        stmt = select(Tenant).where(Tenant.id == tenant_uuid)
+        res = await db.execute(stmt)
+        tenant = res.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Tenant no encontrado")
+            
+        graph = get_graph_service_for_tenant(tenant)
+        
+        user_data = await graph.create_user(
+            display_name=data.display_name,
+            given_name=data.given_name,
+            surname=data.surname,
+            mail_nickname=data.mail_nickname,
+            domain=data.domain,
+            password=data.password,
+            force_change_password=data.force_change_password,
+            job_title=data.job_title,
+            department=data.department,
+            office_location=data.office_location,
+            mobile_phone=data.mobile_phone,
+            street_address=data.street_address
+        )
+        
+        graph_id = user_data.get("id")
+        upn = user_data.get("userPrincipalName")
+        
+        new_db_user = User(
+            tenant_id=tenant.id,
+            graph_id=graph_id,
+            upn=upn,
+            display_name=data.display_name,
+            is_active=True
+        )
+        db.add(new_db_user)
+        
+        log = AuditLog(
+            tenant_id=tenant.id,
+            operator_email=operator.get("email"),
+            action="CREATE_USER",
+            target_upn=upn,
+            status="SUCCESS",
+            details=f"Usuario '{data.display_name}' creado manualmente"
+        )
+        db.add(log)
+        await db.commit()
+        return {"message": "Usuario creado correctamente", "user": {"id": str(new_db_user.id), "upn": upn}}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
 # --- Compliance Engine Endpoints ---
 
 @app.get("/api/tenants/{id}/compliance-report")

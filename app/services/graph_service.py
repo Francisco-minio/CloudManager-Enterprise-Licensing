@@ -537,4 +537,56 @@ class GraphService:
                         return (await response.json()).get("value", [])
         return []
 
+    async def fetch_domains(self) -> List[str]:
+        token = await self.get_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        url = f"{self.base_url}/domains"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return [d.get("id") for d in data.get("value", []) if d.get("isVerified", False)]
+                logger.error(f"Error fetching domains: {await response.text()}")
+                return []
+
+    async def create_user(self, display_name: str, given_name: str | None, surname: str | None, mail_nickname: str, domain: str, password: str, force_change_password: bool = True, job_title: str | None = None, department: str | None = None, office_location: str | None = None, mobile_phone: str | None = None, street_address: str | None = None) -> Dict[str, Any]:
+        token = await self.get_token()
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        url = f"{self.base_url}/users"
+        upn = f"{mail_nickname}@{domain}"
+        
+        payload = {
+            "accountEnabled": True,
+            "displayName": display_name,
+            "mailNickname": mail_nickname,
+            "userPrincipalName": upn,
+            "passwordProfile": {
+                "forceChangePasswordNextSignIn": force_change_password,
+                "password": password
+            }
+        }
+        if given_name:
+            payload["givenName"] = given_name
+        if surname:
+            payload["surname"] = surname
+        if job_title:
+            payload["jobTitle"] = job_title
+        if department:
+            payload["department"] = department
+        if office_location:
+            payload["officeLocation"] = office_location
+        if mobile_phone:
+            payload["mobilePhone"] = mobile_phone
+        if street_address:
+            payload["streetAddress"] = street_address
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, headers=headers, json=payload) as response:
+                if response.status in [200, 201]:
+                    return await response.json()
+                err_text = await response.text()
+                logger.error(f"Error creating user: {err_text}")
+                raise Exception(f"Microsoft Graph Error ({response.status}): {err_text}")
+
+
 
