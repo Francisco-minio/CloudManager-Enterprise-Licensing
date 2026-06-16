@@ -4,9 +4,8 @@ from sqlalchemy import update, delete
 from datetime import datetime
 from sqlalchemy.orm import selectinload, joinedload
 from app.db.models import Tenant, User, License, UserLicense, SyncLog
-from app.services.graph_service import GraphService
+from app.services.utils import get_graph_service_for_tenant
 from app.services.notification_service import NotificationService
-from app.core.config import crypto
 import logging
 
 logger = logging.getLogger(__name__)
@@ -27,9 +26,8 @@ class SyncEngine:
         await self.db.commit()
 
         try:
-            # Decrypt secret
-            secret = crypto.decrypt(tenant.client_secret_encrypted)
-            graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+            # Get Graph Service using helper
+            graph = get_graph_service_for_tenant(tenant)
 
             # 2. Sync Licenses (Subscribed SKUs)
             ms_licenses = await graph.fetch_licenses()

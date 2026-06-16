@@ -21,6 +21,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from app.db.session import get_db, async_session, engine
 from app.db.models import Tenant, License, User, SyncLog, UserLicense, Base, AuditLog
 from app.services.graph_service import GraphService
+from app.services.utils import get_graph_service_for_tenant
 
 from app.services.sync_engine import SyncEngine
 from app.core.license_mapper import get_friendly_name, is_free_license
@@ -322,6 +323,110 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
         "sync_alerts": sync_alerts_count,
         "current_user": user
     })
+
+@app.get("/adminconsent/login")
+async def adminconsent_login(request: Request):
+    import os
+    operator = request.session.get("user")
+    if not operator or operator.get("role") not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+        
+    msp_client_id = os.getenv("MSP_CLIENT_ID") or os.getenv("AZURE_AD_CLIENT_ID")
+    if not msp_client_id:
+        raise HTTPException(status_code=400, detail="MSP_CLIENT_ID / AZURE_AD_CLIENT_ID no configurado en el entorno")
+        
+    base_url = str(request.base_url).rstrip("/")
+    redirect_uri = f"{base_url}/adminconsent/callback"
+    
+    consent_url = (
+        f"https://login.microsoftonline.com/common/adminconsent"
+        f"?client_id={msp_client_id}"
+        f"&redirect_uri={redirect_uri}"
+        f"&state=msp_consent"
+    )
+    return RedirectResponse(consent_url)
+
+@app.get("/adminconsent/callback")
+async def adminconsent_callback(
+    request: Request,
+    tenant: str | None = None,
+    admin_consent: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+    db: AsyncSession = Depends(get_db)
+):
+    import os
+    operator = request.session.get("user")
+    if not operator or operator.get("role") not in ["ADMIN", "SUPERADMIN"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+        
+    if error:
+        raise HTTPException(status_code=400, detail=f"Error de Microsoft: {error_description or error}")
+        
+    if not tenant:
+        raise HTTPException(status_code=400, detail="Falta el parámetro 'tenant' de Microsoft")
+        
+    msp_client_id = os.getenv("MSP_CLIENT_ID") or os.getenv("AZURE_AD_CLIENT_ID")
+    msp_client_secret = os.getenv("MSP_CLIENT_SECRET") or os.getenv("AZURE_AD_CLIENT_SECRET")
+    if not msp_client_id or not msp_client_secret:
+        raise HTTPException(status_code=400, detail="Credenciales globales de la aplicación multi-tenant no configuradas en el entorno (.env)")
+        
+    import aiohttp
+    token_url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+    payload = {
+        "client_id": msp_client_id,
+        "client_secret": msp_client_secret,
+        "grant_type": "client_credentials",
+        "scope": "https://graph.microsoft.com/.default"
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(token_url, data=payload) as resp:
+                if resp.status != 200:
+                    err_body = await resp.text()
+                    raise Exception(f"No se pudo obtener token para el tenant consentido: {err_body}")
+                token_data = await resp.json()
+                access_token = token_data.get("access_token")
+                
+        org_url = "https://graph.microsoft.com/v1.0/organization"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(org_url, headers=headers) as resp:
+                if resp.status != 200:
+                    resp_text = await resp.text()
+                    raise Exception(f"No se pudieron obtener los detalles de la organización en Graph (Status {resp.status}): {resp_text}")
+                org_data = await resp.json()
+                org_info = org_data.get("value", [{}])[0]
+                org_name = org_info.get("displayName", "Nuevo Cliente Multi-Tenant")
+                
+        stmt = select(Tenant).where(Tenant.tenant_id == tenant)
+        res = await db.execute(stmt)
+        db_tenant = res.scalar_one_or_none()
+        
+        if not db_tenant:
+            db_tenant = Tenant(
+                name=org_name,
+                tenant_id=tenant,
+                client_id=None,
+                client_secret_encrypted=None,
+                is_active=True
+            )
+            db.add(db_tenant)
+            await db.commit()
+            await db.refresh(db_tenant)
+            
+            sync_engine = SyncEngine(db)
+            try:
+                await sync_engine.sync_tenant(db_tenant.id)
+            except Exception as sync_err:
+                logger.error(f"Error en sincronización inicial de {org_name}: {sync_err}")
+        
+        return RedirectResponse(url="/?msg=consent_success", status_code=303)
+        
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/tenants/add")
 async def add_tenant(request: Request, data: TenantCreate, db: AsyncSession = Depends(get_db)):
@@ -667,8 +772,7 @@ async def get_user_details_api(id: str, request: Request, db: AsyncSession = Dep
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
         
         tenant = db_user.tenant
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         
         # Parallel fetch from Microsoft Graph
         profile, memberships, manager, licenses, tenant_skus = await asyncio.gather(
@@ -743,8 +847,7 @@ async def toggle_user_status_api(id: str, request: Request, db: AsyncSession = D
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
         
         tenant = db_user.tenant
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         
         new_status = not db_user.is_active
         success = await graph.update_user_status(db_user.graph_id, new_status)
@@ -803,8 +906,7 @@ async def reset_user_password_api(id: str, request: Request, data: ResetPassword
             new_pass = "".join(secrets.choice(alphabet) for _ in range(12))
         
         tenant = db_user.tenant
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         
         success = await graph.reset_password(db_user.graph_id, new_pass, force_change=force_change)
         if not success:
@@ -844,8 +946,7 @@ async def offboard_user_api(id: str, request: Request, db: AsyncSession = Depend
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
             
         tenant = db_user.tenant
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         
         # 1. Obtener licencias asignadas
         lic_details = await graph.fetch_user_license_details(db_user.graph_id)
@@ -917,8 +1018,7 @@ async def assign_user_licenses_api(id: str, data: AssignLicensesSchema, request:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
         tenant = db_user.tenant
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
 
         # Call Graph
         success = await graph.assign_user_licenses(db_user.graph_id, data.add_licenses, data.remove_licenses)
@@ -975,8 +1075,7 @@ async def get_tenant_groups_api(id: str, request: Request, db: AsyncSession = De
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
             
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         groups = await graph.fetch_groups()
         return groups
     except Exception as e:
@@ -1022,8 +1121,7 @@ async def get_group_members_api(group_id: str, tenant_id: str, request: Request,
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
             
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         members = await graph.fetch_group_members(group_id)
         return members
     except Exception as e:
@@ -1044,8 +1142,7 @@ async def add_group_member_api(group_id: str, tenant_id: str, data: GroupMemberS
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
             
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         
         success = await graph.add_group_member(group_id, data.user_graph_id)
         if not success:
@@ -1081,8 +1178,7 @@ async def remove_group_member_api(group_id: str, user_graph_id: str, tenant_id: 
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
             
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         
         success = await graph.remove_group_member(group_id, user_graph_id)
         if not success:
@@ -1120,8 +1216,7 @@ async def get_tenant_shared_mailboxes_api(id: str, request: Request, db: AsyncSe
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
             
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         mailboxes = await graph.fetch_shared_mailboxes()
         return mailboxes
     except Exception as e:
@@ -1142,8 +1237,7 @@ async def get_shared_mailbox_delegates_api(tenant_id: str, user_id: str, request
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
             
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         delegates = await graph.fetch_mailbox_delegates(user_id)
         return delegates
     except Exception as e:
@@ -1169,8 +1263,7 @@ async def add_shared_mailbox_delegate_api(tenant_id: str, user_id: str, data: Ad
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
             
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         
         success = await graph.add_mailbox_delegate(user_id, data.delegate_email, data.delegate_name, data.role)
         if not success:
@@ -1206,8 +1299,7 @@ async def remove_shared_mailbox_delegate_api(tenant_id: str, user_id: str, deleg
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
             
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         
         success = await graph.remove_mailbox_delegate(user_id, delegate_id)
         if not success:
@@ -1248,8 +1340,7 @@ async def create_shared_mailbox_api(id: str, data: CreateSharedMailboxSchema, re
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
             
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         
         success = await graph.create_shared_mailbox(data.display_name, data.alias, data.domain)
         if not success:
@@ -1287,8 +1378,7 @@ async def get_tenant_compliance_report_api(id: str, request: Request, db: AsyncS
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
             
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         metrics = await graph.fetch_security_compliance_metrics()
         return metrics
     except Exception as e:
@@ -1311,8 +1401,7 @@ async def get_tenant_inactive_licenses_api(id: str, request: Request, db: AsyncS
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
             
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         inactive = await graph.fetch_inactive_users_report(days=30)
         return inactive
     except Exception as e:
@@ -1333,8 +1422,7 @@ async def get_user_auto_replies_api(tenant_id: str, user_id: str, request: Reque
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
             
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         
         user_stmt = select(User).where(User.id == uuid.UUID(user_id))
         user_res = await db.execute(user_stmt)
@@ -1370,8 +1458,7 @@ async def update_user_auto_replies_api(tenant_id: str, user_id: str, data: AutoR
         if not tenant:
             raise HTTPException(status_code=404, detail="Tenant no encontrado")
             
-        secret = crypto.decrypt(tenant.client_secret_encrypted)
-        graph = GraphService(tenant.tenant_id, tenant.client_id, secret)
+        graph = get_graph_service_for_tenant(tenant)
         
         user_stmt = select(User).where(User.id == uuid.UUID(user_id))
         user_res = await db.execute(user_stmt)

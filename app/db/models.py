@@ -12,8 +12,8 @@ class Tenant(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     tenant_id = Column(String(255), unique=True, nullable=False)
-    client_id = Column(String(255), nullable=False)
-    client_secret_encrypted = Column(Text, nullable=False)
+    client_id = Column(String(255), nullable=True)
+    client_secret_encrypted = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
     legal_name = Column(String(255), nullable=True) # Razón Social
     tax_id = Column(String(50), nullable=True)      # RUT

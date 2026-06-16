@@ -10,11 +10,23 @@
             <p class="text-secondary mb-0">Monitorización de tenants y métricas de licenciamiento</p>
         </div>
         {% if current_user.role in ['SUPERADMIN', 'ADMIN'] %}
-        <button class="btn btn-primary" onclick="openCreateModal()">
-            <i class="bi bi-plus-circle me-2"></i> Añadir Cliente
-        </button>
+        <div class="d-flex gap-2">
+            <a href="/adminconsent/login" class="btn btn-outline-primary rounded-pill px-4">
+                <i class="bi bi-microsoft me-2"></i> Conectar Cliente (Admin Consent)
+            </a>
+            <button class="btn btn-primary rounded-pill px-4" onclick="openCreateModal()">
+                <i class="bi bi-plus-circle me-2"></i> Añadir Manual (PowerShell)
+            </button>
+        </div>
         {% endif %}
     </div>
+
+    {% if request.query_params.get('msg') == 'consent_success' %}
+    <div class="alert alert-success alert-dismissible fade show rounded-4 border-0 shadow-sm mb-4" role="alert">
+        <i class="bi bi-check-circle-fill me-2"></i><strong>¡Tenant Conectado!</strong> El nuevo cliente se ha registrado y sincronizado exitosamente mediante la aplicación multi-tenant.
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endif %}
 
     <!-- Metrics Grid -->
     <div class="row g-4 mb-5">
