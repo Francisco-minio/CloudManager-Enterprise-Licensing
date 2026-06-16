@@ -12,6 +12,35 @@
     </header>
 
     <div class="card border-0 shadow-sm p-5 rounded-4 bg-white">
+        <h3 class="fw-bold text-primary mb-4">Versión 2.2.0 (GDAP Multi-Tenant, Edición de Perfil y Creación Manual de Usuarios)</h3>
+        <p class="text-secondary">Se han incorporado capacidades de integración multi-tenant automatizada y administración directa de identidades:</p>
+        
+        <h5 class="fw-bold text-dark mb-3"><i class="bi bi-microsoft text-primary me-2"></i> 1. Arquitectura GDAP Multi-Tenant</h5>
+        <ul>
+            <li><strong>Admin Consent Flow</strong>: Flujo simplificado de conexión mediante inicio de sesión único con Microsoft para autorizar clientes de forma inmediata y automática sin registrar aplicaciones individuales.</li>
+            <li><strong>Auto-descubrimiento</strong>: Consulta e ingesta automatizada del nombre de organización y datos de Microsoft Graph tras obtener el consentimiento del tenant.</li>
+        </ul>
+
+        <h5 class="fw-bold text-dark mt-4 mb-3"><i class="bi bi-pencil-square text-primary me-2"></i> 2. Edición de Información de Contacto</h5>
+        <ul>
+            <li><strong>Formulario Directo</strong>: Capacidad para modificar datos del perfil del usuario (Nombre, Apellidos, Nombre para Mostrar, Cargo, Departamento, Oficina, Teléfono de Oficina, Teléfono Móvil y Dirección) actualizándose en caliente en Microsoft 365.</li>
+        </ul>
+
+        <h5 class="fw-bold text-dark mt-4 mb-3"><i class="bi bi-person-plus-fill text-primary me-2"></i> 3. Creación Manual de Usuarios (M365)</h5>
+        <ul>
+            <li><strong>Ingesta desde la Plataforma</strong>: Formularios dedicados (tanto en el detalle de cliente como en la vista consolidada global) para crear usuarios directamente en Microsoft 365.</li>
+            <li><strong>Validación Dinámica</strong>: Selector de cliente y carga dinámica en tiempo real de dominios verificados del tenant.</li>
+            <li><strong>Contraseña Temporal</strong>: Generador interactivo de claves seguras y control opcional para exigir cambio de clave en el próximo inicio.</li>
+        </ul>
+
+        <h5 class="fw-bold text-dark mt-4 mb-3"><i class="bi bi-bell-slash text-primary me-2"></i> 4. Alertas Modernas con SweetAlert2</h5>
+        <ul>
+            <li><strong>Aviso de Buzón Inexistente (OOF)</strong>: Control robusto para el error <code>MailboxNotEnabledForRESTAPI</code> cuando un usuario no tiene buzón asignado.</li>
+            <li><strong>Alertas de Interfaz</strong>: Reemplazo total de diálogos de alerta del navegador por ventanas modales modernas de SweetAlert2.</li>
+        </ul>
+
+        <hr class="my-4">
+
         <h3 class="fw-bold text-primary mb-4">Versión 2.1.0 (Monitoreo Avanzado, OOF y Alertas)</h3>
         <p class="text-secondary">Se han implementado con éxito tres nuevas capacidades al panel de administración:</p>
         
