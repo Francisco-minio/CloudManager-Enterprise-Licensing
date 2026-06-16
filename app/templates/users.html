@@ -11,7 +11,7 @@
         </div>
         <div class="d-flex gap-2">
             <button class="btn btn-light"><i class="bi bi-download me-2"></i> Exportar</button>
-            <button class="btn btn-primary"><i class="bi bi-person-plus me-2"></i> Añadir Manual</button>
+            <button class="btn btn-primary" onclick="openCreateUserModalGlobal()"><i class="bi bi-person-plus me-2"></i> Añadir Manual</button>
         </div>
     </header>
 
@@ -481,6 +481,102 @@
             <div class="modal-footer border-0 py-3">
                 <button type="button" class="btn btn-light rounded-pill px-4" data-bs-dismiss="modal">Cancelar</button>
                 <button type="button" class="btn btn-primary rounded-pill px-4" onclick="saveUserProfile()">Guardar cambios</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Crear Usuario Global -->
+<div class="modal fade" id="createUserGlobalModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header bg-primary bg-gradient text-white border-0 py-3">
+                <h5 class="modal-title fw-bold mb-0"><i class="bi bi-person-plus-fill me-2"></i>Crear Nuevo Usuario (M365)</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <form id="createUserGlobalForm" onsubmit="submitCreateUserGlobal(event)">
+                    <div class="row g-3">
+                        <div class="col-md-12">
+                            <label class="form-label small fw-bold text-secondary">Cliente / Tenant *</label>
+                            <select class="form-select rounded-3" id="global-create-tenant" required onchange="onGlobalTenantChange()">
+                                <option value="">-- Seleccionar Cliente --</option>
+                                {% for tenant in tenants %}
+                                <option value="{{ tenant.id }}">{{ tenant.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Nombre de Pila</label>
+                            <input type="text" class="form-control rounded-3" id="global-create-givenName" placeholder="Ej: Adele">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Apellido</label>
+                            <input type="text" class="form-control rounded-3" id="global-create-surname" placeholder="Ej: Vance">
+                        </div>
+                        <div class="col-md-12">
+                            <label class="form-label small fw-bold text-secondary">Nombre Completo (Display Name) *</label>
+                            <input type="text" class="form-control rounded-3" id="global-create-displayName" required placeholder="Ej: Adele Vance">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Nombre de Usuario (Alias) *</label>
+                            <input type="text" class="form-control rounded-3" id="global-create-mailNickname" required placeholder="Ej: adelev">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Dominio *</label>
+                            <select class="form-select rounded-3" id="global-create-domain" required>
+                                <option value="">-- Seleccione un cliente primero --</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Contraseña Temporal *</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control rounded-start-3" id="global-create-password" required placeholder="Contraseña segura">
+                                <button class="btn btn-outline-secondary rounded-end-3" type="button" onclick="generateRandomPasswordForGlobalCreation()">
+                                    <i class="bi bi-shuffle"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-end">
+                            <div class="form-check mb-2">
+                                <input class="form-check-input" type="checkbox" id="global-create-forceChange" checked>
+                                <label class="form-check-label small fw-medium" for="global-create-forceChange">
+                                    Exigir cambio de contraseña al iniciar sesión
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="col-12 border-top my-3 pt-3">
+                            <h6 class="fw-bold text-secondary mb-2 small text-uppercase" style="letter-spacing: 0.5px;">Detalles del Perfil (Opcional)</h6>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Puesto / Cargo</label>
+                            <input type="text" class="form-control rounded-3" id="global-create-jobTitle" placeholder="Ej: Ingeniero de Sistemas">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Departamento</label>
+                            <input type="text" class="form-control rounded-3" id="global-create-department" placeholder="Ej: Tecnología">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Oficina</label>
+                            <input type="text" class="form-control rounded-3" id="global-create-officeLocation" placeholder="Ej: Piso 3 - Santiago">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold text-secondary">Teléfono móvil</label>
+                            <input type="text" class="form-control rounded-3" id="global-create-mobilePhone" placeholder="Ej: +56912345678">
+                        </div>
+                        <div class="col-md-12">
+                            <label class="form-label small fw-bold text-secondary">Dirección</label>
+                            <input type="text" class="form-control rounded-3" id="global-create-streetAddress" placeholder="Ej: Av. Providencia 1234">
+                        </div>
+                    </div>
+                    
+                    <div class="text-end mt-4">
+                        <button type="button" class="btn btn-light rounded-pill px-4 me-2" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary rounded-pill px-4" id="createUserGlobalSubmitBtn">Crear Usuario</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -1198,6 +1294,134 @@ async function saveUserProfile() {
         
     } catch (e) {
         alert("Error: " + e.message);
+    }
+}
+
+function generateRandomPasswordForGlobalCreation() {
+    const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$";
+    let pass = "";
+    for (let i = 0; i < 12; i++) {
+        pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    document.getElementById('global-create-password').value = pass;
+}
+
+async function openCreateUserModalGlobal() {
+    document.getElementById('createUserGlobalForm').reset();
+    document.getElementById('global-create-domain').innerHTML = '<option value="">-- Seleccione un cliente primero --</option>';
+    generateRandomPasswordForGlobalCreation();
+    
+    const modal = new bootstrap.Modal(document.getElementById('createUserGlobalModal'));
+    modal.show();
+}
+
+async function onGlobalTenantChange() {
+    const tenantId = document.getElementById('global-create-tenant').value;
+    const selectDomain = document.getElementById('global-create-domain');
+    
+    if (!tenantId) {
+        selectDomain.innerHTML = '<option value="">-- Seleccione un cliente primero --</option>';
+        return;
+    }
+    
+    selectDomain.innerHTML = '<option value="">Cargando dominios...</option>';
+    
+    try {
+        const response = await fetch(`/api/tenants/${tenantId}/domains`);
+        if (!response.ok) throw new Error();
+        const data = await response.json();
+        
+        selectDomain.innerHTML = '';
+        if (data.domains && data.domains.length > 0) {
+            data.domains.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d;
+                opt.innerText = d;
+                selectDomain.appendChild(opt);
+            });
+        } else {
+            selectDomain.innerHTML = '<option value="onmicrosoft.com">onmicrosoft.com</option>';
+        }
+    } catch (e) {
+        selectDomain.innerHTML = '<option value="onmicrosoft.com">onmicrosoft.com</option>';
+    }
+}
+
+async function submitCreateUserGlobal(event) {
+    event.preventDefault();
+    const tenantId = document.getElementById('global-create-tenant').value;
+    if (!tenantId) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Cliente requerido',
+            text: 'Por favor, selecciona un cliente para crear el usuario.',
+            confirmButtonColor: '#6366f1'
+        });
+        return;
+    }
+    
+    const submitBtn = document.getElementById('createUserGlobalSubmitBtn');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Creando...';
+    
+    const payload = {
+        display_name: document.getElementById('global-create-displayName').value.trim(),
+        given_name: document.getElementById('global-create-givenName').value.trim() || null,
+        surname: document.getElementById('global-create-surname').value.trim() || null,
+        mail_nickname: document.getElementById('global-create-mailNickname').value.trim(),
+        domain: document.getElementById('global-create-domain').value,
+        password: document.getElementById('global-create-password').value,
+        force_change_password: document.getElementById('global-create-forceChange').checked,
+        job_title: document.getElementById('global-create-jobTitle').value.trim() || null,
+        department: document.getElementById('global-create-department').value.trim() || null,
+        office_location: document.getElementById('global-create-officeLocation').value.trim() || null,
+        mobile_phone: document.getElementById('global-create-mobilePhone').value.trim() || null,
+        street_address: document.getElementById('global-create-streetAddress').value.trim() || null
+    };
+    
+    try {
+        const response = await fetch(`/api/tenants/${tenantId}/users/create`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+        
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.detail || "Error al crear el usuario.");
+        }
+        
+        const data = await response.json();
+        
+        // Hide modal
+        const modalEl = document.getElementById('createUserGlobalModal');
+        const modal = bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+        
+        // Show success alert
+        Swal.fire({
+            icon: 'success',
+            title: '¡Usuario Creado!',
+            html: `<p>El usuario <b>${payload.display_name}</b> se ha creado con éxito.</p>
+                   <p class="small text-secondary">UPN: <b>${data.user.upn}</b></p>
+                   <p class="small text-secondary">Contraseña: <code class="user-select-all">${payload.password}</code></p>`,
+            confirmButtonColor: '#6366f1'
+        }).then(() => {
+            window.location.reload();
+        });
+        
+    } catch (e) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Error al crear usuario',
+            text: e.message,
+            confirmButtonColor: '#6366f1'
+        });
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = 'Crear Usuario';
     }
 }
 

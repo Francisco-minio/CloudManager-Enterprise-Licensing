@@ -539,7 +539,13 @@ async def list_users(request: Request, db: AsyncSession = Depends(get_db)):
     ).order_by(Tenant.name, User.display_name)
     res = await db.execute(stmt)
     users = res.scalars().all()
-    return templates.TemplateResponse(request=request, name="users.html", context={"users": users, "current_user": user})
+    
+    # Fetch active tenants for user creation dropdown
+    tenants_stmt = select(Tenant).where(Tenant.is_active == True).order_by(Tenant.name)
+    tenants_res = await db.execute(tenants_stmt)
+    tenants = tenants_res.scalars().all()
+    
+    return templates.TemplateResponse(request=request, name="users.html", context={"users": users, "current_user": user, "tenants": tenants})
 
 @app.get("/licenses")
 async def list_licenses(request: Request, tenant_id: str = None, db: AsyncSession = Depends(get_db)):
