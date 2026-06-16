@@ -1257,8 +1257,22 @@ async function openAutoRepliesModal(userId, displayName, tenantId) {
         submitBtn.disabled = false;
         submitBtn.innerHTML = 'Guardar Configuración';
     } catch (e) {
-        alert('Error al cargar OOF: ' + e.message);
         myModal.hide();
+        if (e.message.includes("MailboxNotEnabledForRESTAPI") || e.message.includes("404")) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'Buzón de correo no disponible',
+                html: '<p class="text-secondary small">Este usuario no tiene un buzón de Exchange Online configurado (o está alojado on-premises).</p><p class="text-secondary extra-small">Para configurar respuestas de fuera de oficina (OOF), el usuario debe contar con una licencia activa de correo.</p>',
+                confirmButtonColor: '#6366f1'
+            });
+        } else {
+            Swal.fire({
+                icon: 'error',
+                title: 'Error al cargar OOF',
+                text: e.message,
+                confirmButtonColor: '#6366f1'
+            });
+        }
     }
 }
 
