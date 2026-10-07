@@ -1027,6 +1027,15 @@ async def offboard_user_api(id: str, request: Request, db: AsyncSession = Depend
             
         tenant = db_user.tenant
         graph = get_graph_service_for_tenant(tenant)
+
+        # Opciones configurables del offboarding
+        remove_groups = True
+        try:
+            req_data = await request.json()
+            if isinstance(req_data, dict) and "remove_groups" in req_data:
+                remove_groups = bool(req_data.get("remove_groups"))
+        except Exception:
+            pass
         
         # 1. Obtener licencias asignadas
         lic_details = await graph.fetch_user_license_details(db_user.graph_id)
@@ -1049,6 +1058,34 @@ async def offboard_user_api(id: str, request: Request, db: AsyncSession = Depend
             steps_taken.append(f"Remoción de licencias ({len(sku_ids)}): {'OK' if licenses_ok else 'FALLÓ'}")
         else:
             steps_taken.append("No tenía licencias asignadas")
+
+        # 5. Remover de grupos y listas de distribución
+        groups_result = {}
+        if remove_groups:
+            try:
+                groups_result = await graph.remove_user_from_all_groups(db_user.graph_id)
+                rem_c = groups_result.get("removed_count", 0)
+                skip_c = groups_result.get("skipped_count", 0)
+                fail_c = groups_result.get("failed_count", 0)
+                
+                parts = []
+                if rem_c > 0:
+                    parts.append(f"{rem_c} removido(s)")
+                if skip_c > 0:
+                    parts.append(f"{skip_c} omitido(s)")
+                if fail_c > 0:
+                    parts.append(f"{fail_c} fallido(s)")
+                
+                if not parts:
+                    steps_taken.append("Grupos/listas: Sin grupos asignados")
+                else:
+                    status_text = "PARCIAL" if fail_c > 0 and rem_c == 0 else "OK"
+                    steps_taken.append(f"Remoción de grupos/listas ({', '.join(parts)}): {status_text}")
+            except Exception as grp_err:
+                logger.error(f"Error procesando grupos en offboarding: {grp_err}")
+                steps_taken.append(f"Remoción de grupos/listas: FALLÓ ({grp_err})")
+        else:
+            steps_taken.append("Remoción de grupos: Omitido por operador")
             
         overall_status = "SUCCESS" if (status_ok and sessions_ok and licenses_ok) else "FAILED"
         
@@ -1074,7 +1111,11 @@ async def offboard_user_api(id: str, request: Request, db: AsyncSession = Depend
         if overall_status == "FAILED":
             raise HTTPException(status_code=400, detail=f"Offboarding incompleto: {', '.join(steps_taken)}")
             
-        return {"message": "Offboarding ejecutado correctamente", "steps": steps_taken}
+        return {
+            "message": "Offboarding ejecutado correctamente",
+            "steps": steps_taken,
+            "groups_summary": groups_result
+        }
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))

@@ -264,7 +264,7 @@
                         <div class="ms-auto step-status small text-muted">-</div>
                     </div>
 
-                    <div class="d-flex align-items-center gap-3" id="step-licenses">
+                    <div class="d-flex align-items-center gap-3 mb-3" id="step-licenses">
                         <div class="step-icon rounded-circle bg-secondary bg-opacity-10 text-secondary d-flex align-items-center justify-content-center" style="width:32px; height:32px;">
                             <i class="bi bi-shield-slash-fill"></i>
                         </div>
@@ -274,6 +274,24 @@
                         </div>
                         <div class="ms-auto step-status small text-muted">-</div>
                     </div>
+
+                    <div class="d-flex align-items-center gap-3" id="step-groups">
+                        <div class="step-icon rounded-circle bg-secondary bg-opacity-10 text-secondary d-flex align-items-center justify-content-center" style="width:32px; height:32px;">
+                            <i class="bi bi-people-fill"></i>
+                        </div>
+                        <div>
+                            <div class="fw-bold small">Remover de grupos y listas</div>
+                            <div class="text-muted extra-small" style="font-size:0.75rem;">Desvincula de grupos M365, seguridad y distribución.</div>
+                        </div>
+                        <div class="ms-auto step-status small text-muted">-</div>
+                    </div>
+                </div>
+
+                <div class="form-check form-switch mb-3 px-3 py-2 border rounded-3 bg-white d-flex align-items-center justify-content-between shadow-sm">
+                    <label class="form-check-label small fw-semibold text-secondary mb-0" for="offboardRemoveGroupsCheck" style="cursor: pointer;">
+                        <i class="bi bi-diagram-3-fill me-1 text-primary"></i> Desvincular de grupos y listas
+                    </label>
+                    <input class="form-check-input ms-2" type="checkbox" id="offboardRemoveGroupsCheck" checked style="cursor: pointer;">
                 </div>
 
                 <div class="alert alert-warning py-2 small mb-0 rounded-3" style="font-size: 0.8rem;">
@@ -915,10 +933,26 @@ function openOffboardWizard(userId, name, upn) {
     document.getElementById('offboardUserName').innerText = name;
     document.getElementById('offboardUserUpn').innerText = upn;
     
+    const removeGroupsCheck = document.getElementById('offboardRemoveGroupsCheck');
+    if (removeGroupsCheck) {
+        removeGroupsCheck.checked = true;
+        removeGroupsCheck.disabled = false;
+        removeGroupsCheck.onchange = function() {
+            const stepGroups = document.getElementById('step-groups');
+            if (stepGroups) {
+                const statusDiv = stepGroups.querySelector('.step-status');
+                if (statusDiv) {
+                    statusDiv.innerText = this.checked ? '-' : 'Omitido';
+                }
+            }
+        };
+    }
+
     // Reset steps UI
-    const steps = ['disable', 'revoke', 'licenses'];
+    const steps = ['disable', 'revoke', 'licenses', 'groups'];
     steps.forEach(step => {
         const el = document.getElementById(`step-${step}`);
+        if (!el) return;
         const iconDiv = el.querySelector('.step-icon');
         const statusDiv = el.querySelector('.step-status');
         
@@ -928,8 +962,10 @@ function openOffboardWizard(userId, name, upn) {
         statusDiv.innerText = "-";
     });
     
-    document.getElementById('offboardStartBtn').disabled = false;
-    document.getElementById('offboardStartBtn').innerHTML = "Iniciar Offboarding";
+    const startBtn = document.getElementById('offboardStartBtn');
+    startBtn.disabled = false;
+    startBtn.className = "btn btn-danger rounded-pill px-4";
+    startBtn.innerHTML = "Iniciar Offboarding";
     document.getElementById('offboardCancelBtn').style.display = "inline-block";
     document.getElementById('offboardCloseBtn').style.display = "inline-block";
     
@@ -941,6 +977,7 @@ function getStepDefaultIcon(step) {
     if (step === 'disable') return '<i class="bi bi-slash-circle-fill"></i>';
     if (step === 'revoke') return '<i class="bi bi-box-arrow-right"></i>';
     if (step === 'licenses') return '<i class="bi bi-shield-slash-fill"></i>';
+    if (step === 'groups') return '<i class="bi bi-people-fill"></i>';
     return '';
 }
 
@@ -948,59 +985,94 @@ async function runOffboard() {
     const startBtn = document.getElementById('offboardStartBtn');
     const cancelBtn = document.getElementById('offboardCancelBtn');
     const closeBtn = document.getElementById('offboardCloseBtn');
+    const removeGroupsCheck = document.getElementById('offboardRemoveGroupsCheck');
+    const shouldRemoveGroups = removeGroupsCheck ? removeGroupsCheck.checked : true;
     
     startBtn.disabled = true;
     startBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Procesando...';
     cancelBtn.style.display = 'none';
     closeBtn.style.display = 'none';
+    if (removeGroupsCheck) removeGroupsCheck.disabled = true;
     
-    const setStepLoading = (stepId) => {
+    const setStepLoading = (stepId, customText = "Ejecutando...") => {
         const el = document.getElementById(`step-${stepId}`);
+        if (!el) return;
         const iconDiv = el.querySelector('.step-icon');
         const statusDiv = el.querySelector('.step-status');
         iconDiv.className = "step-icon rounded-circle bg-warning bg-opacity-10 text-warning d-flex align-items-center justify-content-center";
         iconDiv.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
         statusDiv.className = "ms-auto step-status small text-warning fw-bold";
-        statusDiv.innerText = "Ejecutando...";
+        statusDiv.innerText = customText;
     };
     
-    const setStepSuccess = (stepId) => {
+    const setStepSuccess = (stepId, customText = "Listo") => {
         const el = document.getElementById(`step-${stepId}`);
+        if (!el) return;
         const iconDiv = el.querySelector('.step-icon');
         const statusDiv = el.querySelector('.step-status');
         iconDiv.className = "step-icon rounded-circle bg-success bg-opacity-10 text-success d-flex align-items-center justify-content-center";
         iconDiv.innerHTML = '<i class="bi bi-check-lg"></i>';
         statusDiv.className = "ms-auto step-status small text-success fw-bold";
-        statusDiv.innerText = "Listo";
+        statusDiv.innerText = customText;
     };
     
-    const setStepError = (stepId) => {
+    const setStepError = (stepId, customText = "Falló") => {
         const el = document.getElementById(`step-${stepId}`);
+        if (!el) return;
         const iconDiv = el.querySelector('.step-icon');
         const statusDiv = el.querySelector('.step-status');
         iconDiv.className = "step-icon rounded-circle bg-danger bg-opacity-10 text-danger d-flex align-items-center justify-content-center";
         iconDiv.innerHTML = '<i class="bi bi-x-lg"></i>';
         statusDiv.className = "ms-auto step-status small text-danger fw-bold";
-        statusDiv.innerText = "Falló";
+        statusDiv.innerText = customText;
     };
 
-    // Simularemos la visualización del proceso paso a paso para dar feedback al usuario
+    const setStepSkipped = (stepId, customText = "Omitido") => {
+        const el = document.getElementById(`step-${stepId}`);
+        if (!el) return;
+        const iconDiv = el.querySelector('.step-icon');
+        const statusDiv = el.querySelector('.step-status');
+        iconDiv.className = "step-icon rounded-circle bg-secondary bg-opacity-10 text-secondary d-flex align-items-center justify-content-center";
+        iconDiv.innerHTML = '<i class="bi bi-dash-lg"></i>';
+        statusDiv.className = "ms-auto step-status small text-muted";
+        statusDiv.innerText = customText;
+    };
+
     setStepLoading('disable');
     
     try {
         const response = await fetch(`/api/users/${currentOffboardId}/offboard`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ remove_groups: shouldRemoveGroups })
         });
         
         if (response.ok) {
+            const data = await response.json();
             setStepSuccess('disable');
             setStepLoading('revoke');
-            await new Promise(r => setTimeout(r, 600));
+            await new Promise(r => setTimeout(r, 450));
             setStepSuccess('revoke');
             setStepLoading('licenses');
-            await new Promise(r => setTimeout(r, 600));
+            await new Promise(r => setTimeout(r, 450));
             setStepSuccess('licenses');
+
+            if (shouldRemoveGroups) {
+                setStepLoading('groups', 'Removiendo...');
+                await new Promise(r => setTimeout(r, 450));
+                const grpSum = data.groups_summary || {};
+                const remCount = grpSum.removed_count ?? 0;
+                const totalFound = grpSum.total_found ?? 0;
+                if (remCount > 0) {
+                    setStepSuccess('groups', `Listo (${remCount})`);
+                } else if (totalFound === 0) {
+                    setStepSuccess('groups', 'Sin grupos');
+                } else {
+                    setStepSuccess('groups', 'Listo (0 removibles)');
+                }
+            } else {
+                setStepSkipped('groups', 'Omitido');
+            }
             
             startBtn.className = "btn btn-success rounded-pill px-4";
             startBtn.innerHTML = '<i class="bi bi-check-circle-fill me-2"></i>Completado';
@@ -1021,11 +1093,13 @@ async function runOffboard() {
             setStepError('disable');
             setStepError('revoke');
             setStepError('licenses');
+            if (shouldRemoveGroups) setStepError('groups');
             const err = await response.json();
             alert("Error en el proceso de offboarding: " + err.detail);
             startBtn.className = "btn btn-danger rounded-pill px-4";
             startBtn.innerHTML = "Reintentar";
             startBtn.disabled = false;
+            if (removeGroupsCheck) removeGroupsCheck.disabled = false;
             closeBtn.style.display = 'inline-block';
         }
     } catch (e) {
@@ -1034,6 +1108,7 @@ async function runOffboard() {
         startBtn.className = "btn btn-danger rounded-pill px-4";
         startBtn.innerHTML = "Reintentar";
         startBtn.disabled = false;
+        if (removeGroupsCheck) removeGroupsCheck.disabled = false;
         closeBtn.style.display = 'inline-block';
     }
 }

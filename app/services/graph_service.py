@@ -206,6 +206,59 @@ class GraphService:
                 logger.error(f"Error removing group member: {await response.text()}")
                 return False
 
+    async def remove_user_from_all_groups(self, user_graph_id: str) -> Dict[str, Any]:
+        """
+        Busca y remueve al usuario de todos sus grupos y listas de distribución en Microsoft 365.
+        Omite de forma segura roles de directorio, grupos dinámicos y grupos sincronizados desde On-Premises.
+        """
+        memberships = await self.fetch_user_member_of(user_graph_id)
+        removed = []
+        skipped = []
+        failed = []
+
+        for item in memberships:
+            od_type = item.get("@odata.type", "")
+            # Solo procesar grupos (ignorar roles de directorio como Global Admin, Helpdesk, etc.)
+            if od_type and "#microsoft.graph.group" not in od_type:
+                continue
+
+            group_id = item.get("id")
+            if not group_id:
+                continue
+
+            group_name = item.get("displayName") or group_id
+            group_types = item.get("groupTypes") or []
+
+            # Grupos dinámicos no permiten eliminar miembros manualmente
+            if "DynamicMembership" in group_types:
+                skipped.append(f"{group_name} (Dinámico)")
+                continue
+
+            # Grupos sincronizados desde Active Directory local no pueden editarse en la nube
+            if item.get("onPremisesSyncEnabled") is True:
+                skipped.append(f"{group_name} (Sincronizado On-Prem)")
+                continue
+
+            try:
+                ok = await self.remove_group_member(group_id, user_graph_id)
+                if ok:
+                    removed.append(group_name)
+                else:
+                    failed.append(group_name)
+            except Exception as e:
+                logger.warning(f"Error al remover del grupo {group_name}: {e}")
+                failed.append(group_name)
+
+        return {
+            "total_found": len(memberships),
+            "removed": removed,
+            "skipped": skipped,
+            "failed": failed,
+            "removed_count": len(removed),
+            "skipped_count": len(skipped),
+            "failed_count": len(failed)
+        }
+
     async def fetch_user_extended_profile(self, user_graph_id: str) -> Dict[str, Any]:
         token = await self.get_token()
         headers = {"Authorization": f"Bearer {token}"}
