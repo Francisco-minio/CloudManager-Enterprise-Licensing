@@ -883,11 +883,20 @@
                     </div>
                 </div>
 
-                <div class="form-check form-switch mb-3 px-3 py-2 border rounded-3 bg-white d-flex align-items-center justify-content-between shadow-sm">
-                    <label class="form-check-label small fw-semibold text-secondary mb-0" for="offboardRemoveGroupsCheck" style="cursor: pointer;">
-                        <i class="bi bi-diagram-3-fill me-1 text-primary"></i> Desvincular de grupos y listas
-                    </label>
-                    <input class="form-check-input ms-2" type="checkbox" id="offboardRemoveGroupsCheck" checked style="cursor: pointer;">
+                <div class="mb-3 px-3 py-2 border rounded-3 bg-white shadow-sm">
+                    <div class="form-check form-switch d-flex align-items-center justify-content-between mb-0">
+                        <label class="form-check-label small fw-semibold text-secondary mb-0" for="offboardRemoveGroupsCheck" style="cursor: pointer;">
+                            <i class="bi bi-diagram-3-fill me-1 text-primary"></i> Desvincular de grupos y listas
+                        </label>
+                        <input class="form-check-input ms-2" type="checkbox" id="offboardRemoveGroupsCheck" checked style="cursor: pointer;">
+                    </div>
+                    <div class="text-muted extra-small mt-1 pt-1 border-top" style="font-size: 0.72rem;">
+                        <i class="bi bi-info-circle me-1 text-primary"></i> <strong>Nota:</strong> Las listas de distribución clásicas de Exchange deben gestionarse en Exchange o actualizarse a grupos M365.
+                    </div>
+                </div>
+
+                <div id="offboardExchangeDlAlert" class="alert alert-warning py-2 small mb-3 rounded-3 d-none" style="font-size: 0.8rem;">
+                    <i class="bi bi-exclamation-triangle-fill me-1"></i> <strong>Nota:</strong> Las listas de distribución clásicas de Exchange (<span id="offboardExchangeDlNames" class="fw-bold"></span>) deben gestionarse en Exchange o actualizarse a grupos M365.
                 </div>
 
                 <div class="alert alert-warning py-2 small mb-0 rounded-3" style="font-size: 0.8rem;">
@@ -1681,6 +1690,9 @@ function openOffboardWizard(userId, name, upn) {
     document.getElementById('offboardUserName').innerText = name;
     document.getElementById('offboardUserUpn').innerText = upn;
     
+    const dlAlert = document.getElementById('offboardExchangeDlAlert');
+    if (dlAlert) dlAlert.classList.add('d-none');
+    
     const removeGroupsCheck = document.getElementById('offboardRemoveGroupsCheck');
     if (removeGroupsCheck) {
         removeGroupsCheck.checked = true;
@@ -1811,12 +1823,23 @@ async function runOffboard() {
                 const grpSum = data.groups_summary || {};
                 const remCount = grpSum.removed_count ?? 0;
                 const totalFound = grpSum.total_found ?? 0;
+                const exchangeDls = grpSum.exchange_dl_warning || [];
+
+                if (exchangeDls.length > 0) {
+                    const alertEl = document.getElementById('offboardExchangeDlAlert');
+                    const namesEl = document.getElementById('offboardExchangeDlNames');
+                    if (alertEl && namesEl) {
+                        namesEl.innerText = exchangeDls.join(', ');
+                        alertEl.classList.remove('d-none');
+                    }
+                }
+
                 if (remCount > 0) {
-                    setStepSuccess('groups', `Listo (${remCount})`);
+                    setStepSuccess('groups', exchangeDls.length > 0 ? `Listo (${remCount})*` : `Listo (${remCount})`);
                 } else if (totalFound === 0) {
                     setStepSuccess('groups', 'Sin grupos');
                 } else {
-                    setStepSuccess('groups', 'Listo (0 removibles)');
+                    setStepSuccess('groups', exchangeDls.length > 0 ? 'Ver aviso' : 'Listo (0 removibles)');
                 }
             } else {
                 setStepSkipped('groups', 'Omitido');

@@ -210,11 +210,13 @@ class GraphService:
         """
         Busca y remueve al usuario de todos sus grupos y listas de distribución en Microsoft 365.
         Omite de forma segura roles de directorio, grupos dinámicos y grupos sincronizados desde On-Premises.
+        Identifica listas de distribución clásicas de Exchange que requieren gestión en Exchange o migración a M365.
         """
         memberships = await self.fetch_user_member_of(user_graph_id)
         removed = []
         skipped = []
         failed = []
+        exchange_dl_warning = []
 
         for item in memberships:
             od_type = item.get("@odata.type", "")
@@ -239,21 +241,38 @@ class GraphService:
                 skipped.append(f"{group_name} (Sincronizado On-Prem)")
                 continue
 
+            # Detectar listas de distribución tradicionales de Exchange Online
+            # (mailEnabled=True, securityEnabled=False, y no es grupo Moderno Unified de M365)
+            is_exchange_dl = (
+                item.get("mailEnabled") is True
+                and item.get("securityEnabled") is False
+                and "Unified" not in group_types
+            )
+            if is_exchange_dl:
+                skipped.append(f"{group_name} (Lista de Distribución Exchange)")
+                exchange_dl_warning.append(group_name)
+                continue
+
             try:
                 ok = await self.remove_group_member(group_id, user_graph_id)
                 if ok:
                     removed.append(group_name)
                 else:
                     failed.append(group_name)
+                    if item.get("mailEnabled") is True and group_name not in exchange_dl_warning:
+                        exchange_dl_warning.append(group_name)
             except Exception as e:
                 logger.warning(f"Error al remover del grupo {group_name}: {e}")
                 failed.append(group_name)
+                if item.get("mailEnabled") is True and group_name not in exchange_dl_warning:
+                    exchange_dl_warning.append(group_name)
 
         return {
             "total_found": len(memberships),
             "removed": removed,
             "skipped": skipped,
             "failed": failed,
+            "exchange_dl_warning": exchange_dl_warning,
             "removed_count": len(removed),
             "skipped_count": len(skipped),
             "failed_count": len(failed)

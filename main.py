@@ -1081,6 +1081,10 @@ async def offboard_user_api(id: str, request: Request, db: AsyncSession = Depend
                 else:
                     status_text = "PARCIAL" if fail_c > 0 and rem_c == 0 else "OK"
                     steps_taken.append(f"Remoción de grupos/listas ({', '.join(parts)}): {status_text}")
+
+                exchange_dls = groups_result.get("exchange_dl_warning", [])
+                if exchange_dls:
+                    steps_taken.append(f"Nota: Listas clásicas Exchange ({', '.join(exchange_dls)}) deben gestionarse en Exchange o actualizarse a grupos M365")
             except Exception as grp_err:
                 logger.error(f"Error procesando grupos en offboarding: {grp_err}")
                 steps_taken.append(f"Remoción de grupos/listas: FALLÓ ({grp_err})")
