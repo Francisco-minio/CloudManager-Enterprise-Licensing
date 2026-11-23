@@ -1,0 +1,703 @@
+{% extends "base.html" %}
+
+{% block title %}Informe de Inventario de Licencias | BACKUPCODE{% endblock %}
+
+{% block content %}
+<div class="animate-fade">
+    <!-- Breadcrumb & Top Bar -->
+    <div class="d-flex justify-content-between align-items-center mb-4 no-print">
+        <div>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-1 small">
+                    <li class="breadcrumb-item"><a href="/licenses" class="text-decoration-none text-secondary">Licencias</a></li>
+                    <li class="breadcrumb-item active fw-bold text-dark" aria-current="page">Informe de Inventario</li>
+                </ol>
+            </nav>
+            <h2 class="fw-bold mb-0">Informe de Inventario de Licencias</h2>
+            <p class="text-secondary small mb-0">Previsualiza, configura y filtra las licencias comerciales antes de imprimir o exportar</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-primary rounded-3 shadow-sm px-4 fw-bold" onclick="window.print()">
+                <i class="bi bi-printer-fill me-2"></i> Imprimir / Guardar PDF
+            </button>
+            <a id="btnDownloadPdf" href="/licenses/export/pdf?exclude_free=true" class="btn btn-light rounded-3 shadow-sm border fw-semibold">
+                <i class="bi bi-file-earmark-pdf-fill text-danger me-2"></i> Descargar PDF
+            </a>
+            <a id="btnDownloadExcel" href="/licenses/export/excel?exclude_free=true" class="btn btn-light rounded-3 shadow-sm border fw-semibold">
+                <i class="bi bi-file-earmark-excel-fill text-success me-2"></i> Exportar Excel
+            </a>
+        </div>
+    </div>
+
+    <!-- Panel de Filtros y Configuración (No se imprime) -->
+    <div class="card border-0 shadow-sm rounded-4 mb-4 filter-panel no-print">
+        <div class="card-body p-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="bg-primary bg-opacity-10 text-primary p-2 rounded-3">
+                        <i class="bi bi-sliders fs-5"></i>
+                    </div>
+                    <div>
+                        <h6 class="fw-bold mb-0">Configuración del Informe</h6>
+                        <small class="text-muted">Ajusta los filtros para personalizar lo que se muestra e imprime</small>
+                    </div>
+                </div>
+                <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" onclick="resetFilters()">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i> Restablecer Filtros
+                </button>
+            </div>
+
+            <div class="row g-3">
+                <!-- Filtro por Cliente -->
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold text-secondary mb-1">Organización / Cliente</label>
+                    <select id="clientFilter" class="form-select rounded-3 shadow-none border-secondary border-opacity-25" onchange="applyFilters()">
+                        <option value="">Todos los Clientes ({{ tenants|length }})</option>
+                        {% for t in tenants %}
+                        <option value="{{ t.tenant_id }}" {{ 'selected' if t.tenant_id == selected_tenant }}>{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Filtro Asignación / Consumo -->
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold text-secondary mb-1">Estado de Consumo</label>
+                    <select id="assignmentFilter" class="form-select rounded-3 shadow-none border-secondary border-opacity-25" onchange="applyFilters()">
+                        <option value="all">Todas las licencias</option>
+                        <option value="consumed">Solo con usuarios asignados (> 0)</option>
+                        <option value="available">Con licencias libres (> 0 disp.)</option>
+                        <option value="exhausted">Agotadas (100% ocupación)</option>
+                    </select>
+                </div>
+
+                <!-- Buscador de texto -->
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold text-secondary mb-1">Búsqueda rápida</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-white border-secondary border-opacity-25 text-muted"><i class="bi bi-search"></i></span>
+                        <input type="text" id="textFilter" class="form-control rounded-end-3 shadow-none border-secondary border-opacity-25" 
+                               placeholder="Cliente, licencia o SKU..." onkeyup="applyFilters()">
+                    </div>
+                </div>
+
+                <!-- Modo de agrupación -->
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold text-secondary mb-1">Estructura del Informe</label>
+                    <select id="groupMode" class="form-select rounded-3 shadow-none border-secondary border-opacity-25" onchange="applyFilters()">
+                        <option value="grouped">Agrupado por Cliente (con subtotales)</option>
+                        <option value="flat">Lista Continua Plana</option>
+                    </select>
+                </div>
+            </div>
+
+            <hr class="my-3 text-secondary opacity-25">
+
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                <!-- Switch Principal: Excluir Free / Trial -->
+                <div class="form-check form-switch bg-light py-2 px-3 pe-4 rounded-3 border mb-0 d-inline-flex align-items-center gap-2">
+                    <input class="form-check-input ms-0 me-2" type="checkbox" id="excludeFreeToggle" checked onchange="applyFilters()">
+                    <label class="form-check-label small fw-bold text-dark cursor-pointer mb-0" for="excludeFreeToggle">
+                        <i class="bi bi-shield-check text-success me-1"></i> Ocultar licencias Free / Trial / Viral (Recomendado)
+                    </label>
+                </div>
+
+                <!-- Selector de Columnas Visibles -->
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <span class="small fw-bold text-secondary me-1">Columnas:</span>
+                    <div class="form-check form-check-inline small">
+                        <input class="form-check-input" type="checkbox" id="colClient" checked onchange="toggleColumns()">
+                        <label class="form-check-label" for="colClient">Cliente</label>
+                    </div>
+                    <div class="form-check form-check-inline small">
+                        <input class="form-check-input" type="checkbox" id="colLicense" checked onchange="toggleColumns()">
+                        <label class="form-check-label" for="colLicense">Licencia</label>
+                    </div>
+                    <div class="form-check form-check-inline small">
+                        <input class="form-check-input" type="checkbox" id="colSku" onchange="toggleColumns()">
+                        <label class="form-check-label" for="colSku">SKU Técnico</label>
+                    </div>
+                    <div class="form-check form-check-inline small">
+                        <input class="form-check-input" type="checkbox" id="colTotal" checked onchange="toggleColumns()">
+                        <label class="form-check-label" for="colTotal">Total</label>
+                    </div>
+                    <div class="form-check form-check-inline small">
+                        <input class="form-check-input" type="checkbox" id="colConsumed" checked onchange="toggleColumns()">
+                        <label class="form-check-label" for="colConsumed">Consumidas</label>
+                    </div>
+                    <div class="form-check form-check-inline small">
+                        <input class="form-check-input" type="checkbox" id="colAvailable" checked onchange="toggleColumns()">
+                        <label class="form-check-label" for="colAvailable">Disponibles</label>
+                    </div>
+                    <div class="form-check form-check-inline small">
+                        <input class="form-check-input" type="checkbox" id="colPct" checked onchange="toggleColumns()">
+                        <label class="form-check-label" for="colPct">% Uso</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tarjetas KPI Resumen Ejecutivo (No se imprime) -->
+    <div class="row g-3 mb-4 no-print">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="text-secondary small fw-bold text-uppercase" style="font-size: 0.7rem;">Clientes en Reporte</div>
+                        <h3 class="fw-bold mb-0 text-dark" id="kpiClients">0</h3>
+                    </div>
+                    <div class="bg-primary bg-opacity-10 text-primary p-3 rounded-4">
+                        <i class="bi bi-buildings fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="text-secondary small fw-bold text-uppercase" style="font-size: 0.7rem;">Total Contratado</div>
+                        <h3 class="fw-bold mb-0 text-dark" id="kpiTotal">0</h3>
+                    </div>
+                    <div class="bg-info bg-opacity-10 text-info p-3 rounded-4">
+                        <i class="bi bi-collection-fill fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="text-secondary small fw-bold text-uppercase" style="font-size: 0.7rem;">Total Asignadas</div>
+                        <h3 class="fw-bold mb-0 text-success" id="kpiConsumed">0</h3>
+                    </div>
+                    <div class="bg-success bg-opacity-10 text-success p-3 rounded-4">
+                        <i class="bi bi-person-check-fill fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm rounded-4 p-3 bg-white">
+                <div class="d-flex align-items-center justify-content-between">
+                    <div>
+                        <div class="text-secondary small fw-bold text-uppercase" style="font-size: 0.7rem;">Disponibles / Ocupación</div>
+                        <h4 class="fw-bold mb-0 text-dark"><span id="kpiAvailable">0</span> <span class="fs-6 text-muted fw-normal">(<span id="kpiPct">0%</span>)</span></h4>
+                    </div>
+                    <div class="bg-warning bg-opacity-10 text-warning p-3 rounded-4">
+                        <i class="bi bi-pie-chart-fill fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HOJA DE REPORTE (Print Sheet - Se imprime exactamente tal como está) -->
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden print-sheet bg-white mb-5">
+        <!-- Encabezado Corporativo BACKUPCODE -->
+        <div class="header-banner p-4 text-white" style="background-color: #1e1b4b;">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h2 class="fw-bold mb-0 tracking-wide text-white" style="letter-spacing: 1px;">BACKUPCODE</h2>
+                    <div class="small opacity-75 mt-1">Enterprise IT Managed Services | Microsoft 365 Audit</div>
+                </div>
+                <div class="text-end">
+                    <div class="small opacity-75">Fecha de Emisión: <strong>{{ generated_at }}</strong></div>
+                    <h6 class="fw-bold mb-0 mt-1 text-white">Reporte de Inventario de Licencias</h6>
+                </div>
+            </div>
+        </div>
+
+        <!-- Metadatos de impresión -->
+        <div class="px-4 py-3 bg-light border-bottom d-flex justify-content-between align-items-center small">
+            <div>
+                <span class="text-secondary fw-semibold">Alcance:</span>
+                <span id="reportScopeBadge" class="badge bg-white text-dark border ms-1 fw-bold">Todos los Clientes</span>
+                <span id="reportFilterBadge" class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 ms-2">
+                    <i class="bi bi-check2-circle me-1"></i> Solo Licencias Comerciales (Sin Free/Trial)
+                </span>
+            </div>
+            <div class="text-muted">
+                Emitido por: <strong>{{ current_user.name }}</strong> ({{ current_user.role }})
+            </div>
+        </div>
+
+        <!-- Tabla del Reporte -->
+        <div class="table-responsive p-0">
+            <table class="table table-hover align-middle mb-0" id="reportTable">
+                <thead class="table-light border-bottom">
+                    <tr class="small text-uppercase fw-bold text-secondary">
+                        <th class="ps-4 col-client">Cliente</th>
+                        <th class="col-license">Licencia</th>
+                        <th class="col-sku" style="display: none;">SKU</th>
+                        <th class="text-end col-total pe-3">Total</th>
+                        <th class="text-end col-consumed pe-3">Cons.</th>
+                        <th class="text-end col-available pe-3">Disp.</th>
+                        <th class="text-center col-pct pe-4" style="width: 130px;">% Uso</th>
+                    </tr>
+                </thead>
+                <tbody id="reportTableBody">
+                    <!-- Filas generadas dinámicamente con JavaScript -->
+                </tbody>
+                <tfoot id="reportTableFoot" class="table-dark fw-bold border-top" style="background-color: #1e1b4b;">
+                    <!-- Total General generado dinámicamente -->
+                </tfoot>
+            </table>
+        </div>
+
+        <!-- Pie de página del documento para impresión -->
+        <div class="p-3 bg-light border-top text-center small text-secondary print-footer">
+            <span>BACKUPCODE SpA - Documento de auditoría confidencial generado por la plataforma CloudManager Microsoft 365.</span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block styles %}
+<style>
+/* Estilos específicos para visualización en pantalla */
+.cursor-pointer { cursor: pointer; }
+.tracking-wide { letter-spacing: 0.5px; }
+
+/* Subtotales por cliente */
+.subtotal-row {
+    background-color: #f8fafc !important;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: #475569;
+}
+
+.client-divider-row td {
+    background-color: #f1f5f9;
+    font-weight: 700;
+    color: #0f172a;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    font-size: 0.9rem;
+}
+
+/* ===================================================
+   REGLAS DE IMPRESIÓN PROFESIONAL (@media print)
+   =================================================== */
+@media print {
+    /* Ocultar elementos no imprimibles */
+    .sidebar,
+    .top-bar-container,
+    .filter-panel,
+    .no-print,
+    .breadcrumb,
+    .sidebar-overlay,
+    nav {
+        display: none !important;
+    }
+
+    /* Reset de márgenes de página */
+    @page {
+        size: letter portrait;
+        margin: 10mm 12mm 12mm 12mm;
+    }
+
+    body {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        font-size: 8.5pt !important;
+        line-height: 1.2 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    .main-content {
+        margin-left: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .print-sheet {
+        box-shadow: none !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+    }
+
+    .header-banner {
+        background-color: #1e1b4b !important;
+        color: #ffffff !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        padding: 14px 20px !important;
+    }
+
+    .header-banner h2, .header-banner h6, .header-banner div {
+        color: #ffffff !important;
+    }
+
+    table {
+        width: 100% !important;
+        font-size: 8pt !important;
+        border-collapse: collapse !important;
+    }
+
+    thead {
+        display: table-header-group !important;
+    }
+
+    tfoot {
+        display: table-footer-group !important;
+        background-color: #1e1b4b !important;
+        color: #ffffff !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    tfoot td {
+        color: #ffffff !important;
+    }
+
+    tr {
+        page-break-inside: avoid !important;
+    }
+
+    .client-group-container {
+        page-break-inside: avoid !important;
+    }
+
+    th, td {
+        padding: 4px 8px !important;
+        border-bottom: 0.5px solid #e2e8f0 !important;
+    }
+
+    .subtotal-row td {
+        background-color: #f1f5f9 !important;
+        font-weight: bold !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    .client-divider-row td {
+        background-color: #e2e8f0 !important;
+        font-weight: bold !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    .badge {
+        border: 0.5px solid #94a3b8 !important;
+        color: #0f172a !important;
+        background-color: transparent !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    .print-footer {
+        display: block !important;
+        font-size: 7pt !important;
+        color: #64748b !important;
+    }
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Datos crudos entregados por FastAPI
+const ALL_REPORT_ITEMS = {{ report_items | tojson }};
+
+function applyFilters() {
+    const tenantFilter = document.getElementById('clientFilter').value;
+    const assignmentFilter = document.getElementById('assignmentFilter').value;
+    const excludeFree = document.getElementById('excludeFreeToggle').checked;
+    const searchText = document.getElementById('textFilter').value.toLowerCase().trim();
+    const groupMode = document.getElementById('groupMode').value;
+
+    // Actualizar badges de alcance y estado
+    const clientSelect = document.getElementById('clientFilter');
+    const selectedOptionText = clientSelect.options[clientSelect.selectedIndex].text;
+    document.getElementById('reportScopeBadge').innerText = tenantFilter ? selectedOptionText : 'Todos los Clientes';
+
+    const filterBadge = document.getElementById('reportFilterBadge');
+    if (excludeFree) {
+        filterBadge.className = 'badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 ms-2';
+        filterBadge.innerHTML = '<i class="bi bi-check2-circle me-1"></i> Solo Licencias Comerciales (Sin Free/Trial)';
+    } else {
+        filterBadge.className = 'badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 ms-2';
+        filterBadge.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i> Incluye Licencias Free / Trial / Viral';
+    }
+
+    // Filtrar la lista
+    const filtered = ALL_REPORT_ITEMS.filter(item => {
+        // Filtro por Tenant
+        if (tenantFilter && item.tenant_id !== tenantFilter) {
+            return false;
+        }
+
+        // Filtro Free/Trial
+        if (excludeFree && item.is_free) {
+            return false;
+        }
+
+        // Filtro de Consumo
+        if (assignmentFilter === 'consumed' && !item.has_consumed) {
+            return false;
+        }
+        if (assignmentFilter === 'available' && !item.has_available) {
+            return false;
+        }
+        if (assignmentFilter === 'exhausted' && !item.is_exhausted) {
+            return false;
+        }
+
+        // Buscador de texto
+        if (searchText) {
+            const matchesTenant = item.tenant_name.toLowerCase().includes(searchText);
+            const matchesFriendly = item.friendly_name.toLowerCase().includes(searchText);
+            const matchesSku = item.sku_part_number.toLowerCase().includes(searchText);
+            if (!matchesTenant && !matchesFriendly && !matchesSku) {
+                return false;
+            }
+        }
+
+        return true;
+    });
+
+    // Actualizar KPIs
+    updateKPIs(filtered);
+
+    // Actualizar URLs de descarga
+    updateDownloadLinks(tenantFilter, excludeFree, assignmentFilter);
+
+    // Renderizar la tabla según el modo
+    renderTable(filtered, groupMode);
+
+    // Aplicar visibilidad de columnas
+    toggleColumns();
+}
+
+function updateKPIs(items) {
+    const distinctClients = new Set(items.map(i => i.tenant_name)).size;
+    const totalUnits = items.reduce((sum, i) => sum + i.total_units, 0);
+    const consumedUnits = items.reduce((sum, i) => sum + i.consumed_units, 0);
+    const availableUnits = totalUnits - consumedUnits;
+    const pct = totalUnits > 0 ? Math.round((consumedUnits / totalUnits) * 100) : 0;
+
+    document.getElementById('kpiClients').innerText = distinctClients;
+    document.getElementById('kpiTotal').innerText = totalUnits.toLocaleString();
+    document.getElementById('kpiConsumed').innerText = consumedUnits.toLocaleString();
+    document.getElementById('kpiAvailable').innerText = availableUnits.toLocaleString();
+    document.getElementById('kpiPct').innerText = `${pct}%`;
+}
+
+function updateDownloadLinks(tenantFilter, excludeFree, assignmentFilter) {
+    let pdfUrl = `/licenses/export/pdf?exclude_free=${excludeFree}`;
+    let excelUrl = `/licenses/export/excel?exclude_free=${excludeFree}`;
+
+    if (tenantFilter) {
+        pdfUrl += `&tenant_id=${encodeURIComponent(tenantFilter)}`;
+        excelUrl += `&tenant_id=${encodeURIComponent(tenantFilter)}`;
+    }
+    if (assignmentFilter === 'consumed') {
+        pdfUrl += `&only_consumed=true`;
+        excelUrl += `&only_consumed=true`;
+    }
+
+    document.getElementById('btnDownloadPdf').href = pdfUrl;
+    document.getElementById('btnDownloadExcel').href = excelUrl;
+}
+
+function renderTable(items, groupMode) {
+    const tbody = document.getElementById('reportTableBody');
+    const tfoot = document.getElementById('reportTableFoot');
+
+    if (items.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="7" class="text-center py-5 text-muted">
+                    <i class="bi bi-filter-circle fs-1 d-block mb-2 text-secondary opacity-50"></i>
+                    <h6 class="fw-bold mb-1">No hay licencias que coincidan con los filtros seleccionados</h6>
+                    <small>Intenta modificar o restablecer los filtros para ver más resultados.</small>
+                </td>
+            </tr>
+        `;
+        tfoot.innerHTML = '';
+        return;
+    }
+
+    let tbodyHtml = '';
+    let grandTotal = 0;
+    let grandConsumed = 0;
+
+    if (groupMode === 'grouped') {
+        // Agrupar por Cliente
+        const groups = {};
+        items.forEach(item => {
+            if (!groups[item.tenant_name]) {
+                groups[item.tenant_name] = [];
+            }
+            groups[item.tenant_name].push(item);
+        });
+
+        for (const [clientName, clientItems] of Object.entries(groups)) {
+            let subTotal = 0;
+            let subConsumed = 0;
+
+            // Encabezado del grupo cliente
+            tbodyHtml += `
+                <tr class="client-divider-row">
+                    <td colspan="7" class="ps-4">
+                        <i class="bi bi-building text-primary me-2"></i> ${clientName} 
+                        <span class="badge bg-white text-secondary border ms-2 fw-normal">${clientItems.length} producto${clientItems.length > 1 ? 's' : ''}</span>
+                    </td>
+                </tr>
+            `;
+
+            // Filas de licencias del cliente
+            clientItems.forEach(item => {
+                subTotal += item.total_units;
+                subConsumed += item.consumed_units;
+                grandTotal += item.total_units;
+                grandConsumed += item.consumed_units;
+
+                const disp = item.total_units - item.consumed_units;
+                const pct = item.usage_pct;
+                const progressColor = pct < 80 ? 'bg-success' : pct > 95 ? 'bg-danger' : 'bg-warning';
+                const badgeColor = pct < 80 ? 'text-success bg-success' : pct > 95 ? 'text-danger bg-danger' : 'text-warning bg-warning';
+
+                tbodyHtml += `
+                    <tr>
+                        <td class="ps-4 col-client text-muted small">${clientName}</td>
+                        <td class="col-license">
+                            <span class="fw-bold text-dark">${item.friendly_name}</span>
+                            ${item.is_free ? '<span class="badge bg-secondary bg-opacity-10 text-secondary extra-small ms-1">Free/Trial</span>' : ''}
+                        </td>
+                        <td class="col-sku text-secondary small font-monospace" style="display: none;">${item.sku_part_number}</td>
+                        <td class="text-end col-total pe-3 fw-semibold">${item.total_units.toLocaleString()}</td>
+                        <td class="text-end col-consumed pe-3 fw-bold text-dark">${item.consumed_units.toLocaleString()}</td>
+                        <td class="text-end col-available pe-3 ${disp === 0 ? 'text-danger fw-bold' : 'text-secondary'}">${disp.toLocaleString()}</td>
+                        <td class="text-center col-pct pe-4">
+                            <div class="d-flex align-items-center justify-content-end gap-2">
+                                <div class="progress w-100" style="height: 6px; min-width: 60px;">
+                                    <div class="progress-bar ${progressColor}" role="progressbar" style="width: ${pct}%"></div>
+                                </div>
+                                <span class="badge ${badgeColor} bg-opacity-10 fw-bold small" style="min-width: 42px;">${pct}%</span>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            // Fila de Subtotal por Cliente
+            const subDisp = subTotal - subConsumed;
+            const subPct = subTotal > 0 ? Math.round((subConsumed / subTotal) * 100) : 0;
+            tbodyHtml += `
+                <tr class="subtotal-row">
+                    <td colspan="3" class="ps-4 text-secondary">
+                        <i class="bi bi-calculator me-1"></i> Subtotal <strong>${clientName}</strong>
+                    </td>
+                    <td class="text-end col-total pe-3 fw-bold">${subTotal.toLocaleString()}</td>
+                    <td class="text-end col-consumed pe-3 fw-bold text-success">${subConsumed.toLocaleString()}</td>
+                    <td class="text-end col-available pe-3 fw-bold ${subDisp === 0 ? 'text-danger' : 'text-secondary'}">${subDisp.toLocaleString()}</td>
+                    <td class="text-center col-pct pe-4 fw-bold">${subPct}%</td>
+                </tr>
+            `;
+        }
+    } else {
+        // Vista plana continua
+        items.forEach(item => {
+            grandTotal += item.total_units;
+            grandConsumed += item.consumed_units;
+
+            const disp = item.total_units - item.consumed_units;
+            const pct = item.usage_pct;
+            const progressColor = pct < 80 ? 'bg-success' : pct > 95 ? 'bg-danger' : 'bg-warning';
+            const badgeColor = pct < 80 ? 'text-success bg-success' : pct > 95 ? 'text-danger bg-danger' : 'text-warning bg-warning';
+
+            tbodyHtml += `
+                <tr>
+                    <td class="ps-4 col-client fw-semibold text-dark">${item.tenant_name}</td>
+                    <td class="col-license">
+                        <span class="fw-bold text-dark">${item.friendly_name}</span>
+                        ${item.is_free ? '<span class="badge bg-secondary bg-opacity-10 text-secondary extra-small ms-1">Free/Trial</span>' : ''}
+                    </td>
+                    <td class="col-sku text-secondary small font-monospace" style="display: none;">${item.sku_part_number}</td>
+                    <td class="text-end col-total pe-3 fw-semibold">${item.total_units.toLocaleString()}</td>
+                    <td class="text-end col-consumed pe-3 fw-bold text-dark">${item.consumed_units.toLocaleString()}</td>
+                    <td class="text-end col-available pe-3 ${disp === 0 ? 'text-danger fw-bold' : 'text-secondary'}">${disp.toLocaleString()}</td>
+                    <td class="text-center col-pct pe-4">
+                        <div class="d-flex align-items-center justify-content-end gap-2">
+                            <div class="progress w-100" style="height: 6px; min-width: 60px;">
+                                <div class="progress-bar ${progressColor}" role="progressbar" style="width: ${pct}%"></div>
+                            </div>
+                            <span class="badge ${badgeColor} bg-opacity-10 fw-bold small" style="min-width: 42px;">${pct}%</span>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        });
+    }
+
+    tbody.innerHTML = tbodyHtml;
+
+    // Gran Total
+    const grandDisp = grandTotal - grandConsumed;
+    const grandPct = grandTotal > 0 ? Math.round((grandConsumed / grandTotal) * 100) : 0;
+    tfoot.innerHTML = `
+        <tr class="align-middle">
+            <td colspan="3" class="ps-4 py-3 text-white fs-6">
+                <i class="bi bi-asterisk text-warning me-2"></i> TOTAL GENERAL 
+                <span class="opacity-75 small fw-normal ms-2">(${items.length} registro${items.length > 1 ? 's' : ''})</span>
+            </td>
+            <td class="text-end col-total pe-3 py-3 text-white fs-6">${grandTotal.toLocaleString()}</td>
+            <td class="text-end col-consumed pe-3 py-3 text-white fs-6">${grandConsumed.toLocaleString()}</td>
+            <td class="text-end col-available pe-3 py-3 text-white fs-6">${grandDisp.toLocaleString()}</td>
+            <td class="text-center col-pct pe-4 py-3 text-white fs-6">${grandPct}%</td>
+        </tr>
+    `;
+}
+
+function toggleColumns() {
+    const cols = [
+        { id: 'colClient', className: 'col-client' },
+        { id: 'colLicense', className: 'col-license' },
+        { id: 'colSku', className: 'col-sku' },
+        { id: 'colTotal', className: 'col-total' },
+        { id: 'colConsumed', className: 'col-consumed' },
+        { id: 'colAvailable', className: 'col-available' },
+        { id: 'colPct', className: 'col-pct' }
+    ];
+
+    cols.forEach(col => {
+        const checkbox = document.getElementById(col.id);
+        const isVisible = checkbox ? checkbox.checked : true;
+        document.querySelectorAll(`.${col.className}`).forEach(el => {
+            el.style.display = isVisible ? '' : 'none';
+        });
+    });
+}
+
+function resetFilters() {
+    document.getElementById('clientFilter').value = '';
+    document.getElementById('assignmentFilter').value = 'all';
+    document.getElementById('excludeFreeToggle').checked = true;
+    document.getElementById('textFilter').value = '';
+    document.getElementById('groupMode').value = 'grouped';
+    
+    document.getElementById('colClient').checked = true;
+    document.getElementById('colLicense').checked = true;
+    document.getElementById('colSku').checked = false;
+    document.getElementById('colTotal').checked = true;
+    document.getElementById('colConsumed').checked = true;
+    document.getElementById('colAvailable').checked = true;
+    document.getElementById('colPct').checked = true;
+
+    applyFilters();
+}
+
+// Inicializar al cargar la página
+document.addEventListener('DOMContentLoaded', () => {
+    applyFilters();
+});
+</script>
+{% endblock %}
+

@@ -307,8 +307,11 @@
         <a class="nav-link {{ 'active' if request.url.path == '/users' }}" href="/users">
             <i class="bi bi-people-fill"></i> Usuarios
         </a>
-        <a class="nav-link {{ 'active' if '/licenses' in request.url.path }}" href="/licenses">
+        <a class="nav-link {{ 'active' if request.url.path == '/licenses' }}" href="/licenses">
             <i class="bi bi-shield-check"></i> Licencias
+        </a>
+        <a class="nav-link {{ 'active' if request.url.path == '/licenses/report' }}" href="/licenses/report">
+            <i class="bi bi-file-earmark-bar-graph"></i> Informe de Licencias
         </a>
         <a class="nav-link {{ 'active' if request.url.path == '/audit-logs' }}" href="/audit-logs">
             <i class="bi bi-journal-text"></i> Auditoría
@@ -488,6 +491,17 @@
                         card.style.display = 'none';
                     }
                 });
+            }
+        }
+        
+        // 3.1. Licenses Report Page
+        else if (path === '/licenses/report') {
+            const tf = document.getElementById('textFilter');
+            if (tf) {
+                tf.value = query;
+                if (typeof applyFilters === 'function') {
+                    applyFilters();
+                }
             }
         }
         

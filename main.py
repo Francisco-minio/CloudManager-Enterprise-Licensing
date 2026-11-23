@@ -642,8 +642,75 @@ async def tenant_detail(id: str, request: Request, db: AsyncSession = Depends(ge
         "now": datetime.utcnow()
     })
 
+@app.get("/licenses/report")
+async def licenses_report_page(
+    request: Request,
+    tenant_id: str | None = None,
+    exclude_free: bool = True,
+    only_consumed: bool = False,
+    db: AsyncSession = Depends(get_db)
+):
+    user = request.session.get("user")
+    if not user:
+        return RedirectResponse(url="/login")
+
+    stmt_tenants = select(Tenant).order_by(Tenant.name)
+    res_tenants = await db.execute(stmt_tenants)
+    tenants = res_tenants.scalars().all()
+
+    stmt = select(License).options(joinedload(License.tenant))
+    if tenant_id:
+        stmt = stmt.join(License.tenant).where(Tenant.tenant_id == tenant_id)
+
+    res = await db.execute(stmt)
+    licenses = res.scalars().all()
+
+    items = []
+    for l in licenses:
+        t_name = l.tenant.name if l.tenant and l.tenant.name else "Cliente Desconocido"
+        t_id = l.tenant.tenant_id if l.tenant else ""
+        friendly = get_friendly_name(l.sku_part_number)
+        is_free = is_free_license(l.sku_part_number) or l.total_units == 0
+        disp = l.total_units - l.consumed_units
+        pct = round((l.consumed_units / l.total_units * 100) if l.total_units > 0 else 0)
+
+        items.append({
+            "id": str(l.id),
+            "tenant_name": t_name,
+            "tenant_id": t_id,
+            "sku_id": l.sku_id,
+            "sku_part_number": l.sku_part_number,
+            "friendly_name": friendly,
+            "total_units": l.total_units,
+            "consumed_units": l.consumed_units,
+            "available_units": disp,
+            "usage_pct": pct,
+            "is_free": is_free,
+            "has_consumed": l.consumed_units > 0,
+            "has_available": disp > 0,
+            "is_exhausted": l.total_units > 0 and disp <= 0
+        })
+
+    # Ordenar por Cliente y Nombre Amigable
+    items.sort(key=lambda x: (x["tenant_name"].lower(), x["friendly_name"].lower()))
+
+    return templates.TemplateResponse(request=request, name="licenses_report.html", context={
+        "tenants": tenants,
+        "selected_tenant": tenant_id or "",
+        "report_items": items,
+        "exclude_free_default": exclude_free,
+        "only_consumed_default": only_consumed,
+        "current_user": user,
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M")
+    })
+
 @app.get("/licenses/export/excel")
-async def export_licenses_excel(tenant_id: str = None, db: AsyncSession = Depends(get_db)):
+async def export_licenses_excel(
+    tenant_id: str = None,
+    exclude_free: bool = True,
+    only_consumed: bool = False,
+    db: AsyncSession = Depends(get_db)
+):
     stmt = select(License).options(joinedload(License.tenant))
     if tenant_id:
         stmt = stmt.join(License.tenant).where(Tenant.tenant_id == tenant_id)
@@ -651,16 +718,35 @@ async def export_licenses_excel(tenant_id: str = None, db: AsyncSession = Depend
     res = await db.execute(stmt)
     licenses = res.scalars().all()
     
-    data = []
+    # Filtrar
+    filtered = []
     for l in licenses:
+        if exclude_free and (is_free_license(l.sku_part_number) or l.total_units == 0):
+            continue
+        if only_consumed and l.consumed_units <= 0:
+            continue
+        filtered.append(l)
+
+    # Ordenar por Cliente y Nombre de Licencia
+    filtered.sort(key=lambda x: (
+        (x.tenant.name.lower() if x.tenant and x.tenant.name else ""),
+        get_friendly_name(x.sku_part_number).lower()
+    ))
+    
+    data = []
+    for l in filtered:
+        t_name = l.tenant.name if l.tenant and l.tenant.name else "Cliente Desconocido"
+        disp = l.total_units - l.consumed_units
+        pct = round((l.consumed_units / l.total_units * 100) if l.total_units > 0 else 0)
         data.append({
-            "Cliente": l.tenant.name,
-            "ID Producto": l.sku_id,
-            "SKU": l.sku_part_number,
+            "Cliente": t_name,
             "Licencia (Nombre Amigable)": get_friendly_name(l.sku_part_number),
-            "Total": l.total_units,
+            "SKU / Part Number": l.sku_part_number,
+            "ID Producto (SKU ID)": l.sku_id,
+            "Total Contratado": l.total_units,
             "Consumidas": l.consumed_units,
-            "Disponibles": l.total_units - l.consumed_units
+            "Disponibles": disp,
+            "% Uso": f"{pct}%"
         })
     
     df = pd.DataFrame(data)
@@ -669,76 +755,222 @@ async def export_licenses_excel(tenant_id: str = None, db: AsyncSession = Depend
         df.to_excel(writer, index=False, sheet_name='Licencias 365')
     
     output.seek(0)
-    headers = {'Content-Disposition': 'attachment; filename="reporte_licencias_365.xlsx"'}
+    filename = f"reporte_licencias_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    headers = {'Content-Disposition': f'attachment; filename="{filename}"'}
     return StreamingResponse(output, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 @app.get("/licenses/export/pdf")
-async def export_licenses_pdf(tenant_id: str = None, db: AsyncSession = Depends(get_db)):
+async def export_licenses_pdf(
+    tenant_id: str = None,
+    exclude_free: bool = True,
+    only_consumed: bool = False,
+    db: AsyncSession = Depends(get_db)
+):
     stmt = select(License).options(joinedload(License.tenant))
     if tenant_id:
         stmt = stmt.join(License.tenant).where(Tenant.tenant_id == tenant_id)
         
     res = await db.execute(stmt)
     licenses = res.scalars().all()
+
+    # Filtrar
+    filtered = []
+    for l in licenses:
+        if exclude_free and (is_free_license(l.sku_part_number) or l.total_units == 0):
+            continue
+        if only_consumed and l.consumed_units <= 0:
+            continue
+        filtered.append(l)
+
+    # Ordenar por Cliente y por Nombre de Licencia
+    filtered.sort(key=lambda x: (
+        (x.tenant.name.lower() if x.tenant and x.tenant.name else ""),
+        get_friendly_name(x.sku_part_number).lower()
+    ))
     
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
     
-    # Header Estilo BACKUPCODE
-    p.setFillColor(colors.HexColor("#1e1b4b")) # Azul oscuro
-    p.rect(0, height - 1.2 * inch, width, 1.2 * inch, fill=1)
-    
-    p.setFillColor(colors.white)
-    p.setFont("Helvetica-Bold", 22)
-    p.drawString(0.5 * inch, height - 0.7 * inch, "BACKUPCODE")
-    p.setFont("Helvetica", 10)
-    p.drawString(0.5 * inch, height - 0.9 * inch, "Enterprise IT Managed Services | Microsoft 365 Audit")
-    
-    p.setFont("Helvetica", 9)
-    p.drawRightString(width - 0.5 * inch, height - 0.7 * inch, f"Fecha: {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}")
-    p.drawRightString(width - 0.5 * inch, height - 0.9 * inch, "Reporte de Inventario de Licencias")
-    
-    # Body
-    y = height - 1.6 * inch
-    p.setFillColor(colors.black)
-    p.setFont("Helvetica-Bold", 14)
-    p.drawString(0.5 * inch, y, "Reporte de Licencias por Cliente")
-    y -= 0.4 * inch
-    
-    # Tabla Header
-    p.setFont("Helvetica-Bold", 10)
-    p.line(0.5 * inch, y + 2, width - 0.5 * inch, y + 2)
-    p.drawString(0.5 * inch, y, "Cliente")
-    p.drawString(2.5 * inch, y, "Licencia")
-    p.drawString(5.5 * inch, y, "Total")
-    p.drawString(6.5 * inch, y, "Cons.")
-    p.drawString(7.2 * inch, y, "Disp.")
-    y -= 5
-    p.line(0.5 * inch, y, width - 0.5 * inch, y)
-    y -= 15
-    
-    p.setFont("Helvetica", 9)
-    for l in licenses:
-        if y < 1 * inch:
-            p.showPage()
-            y = height - 1 * inch
-            p.setFont("Helvetica-Bold", 10)
-            p.drawString(0.5 * inch, y, "Cliente (Cont.)")
-            y -= 20
-            p.setFont("Helvetica", 9)
-            
-        tenant_name = l.tenant.name if l.tenant and l.tenant.name else "Cliente Desconocido"
-        p.drawString(0.5 * inch, y, tenant_name[:25])
-        p.drawString(2.5 * inch, y, get_friendly_name(l.sku_part_number)[:45])
-        p.drawString(5.5 * inch, y, str(l.total_units))
-        p.drawString(6.5 * inch, y, str(l.consumed_units))
-        p.drawString(7.2 * inch, y, str(l.total_units - l.consumed_units))
-        y -= 15
+    def draw_header(canvas_obj, title_suffix=""):
+        canvas_obj.setFillColor(colors.HexColor("#1e1b4b")) # Azul oscuro corporativo BACKUPCODE
+        canvas_obj.rect(0, height - 1.2 * inch, width, 1.2 * inch, fill=1, stroke=0)
         
+        canvas_obj.setFillColor(colors.white)
+        canvas_obj.setFont("Helvetica-Bold", 20)
+        canvas_obj.drawString(0.5 * inch, height - 0.65 * inch, "BACKUPCODE")
+        canvas_obj.setFont("Helvetica", 9)
+        canvas_obj.drawString(0.5 * inch, height - 0.85 * inch, "Enterprise IT Managed Services | Microsoft 365 Audit")
+        
+        canvas_obj.setFont("Helvetica", 9)
+        canvas_obj.drawRightString(width - 0.5 * inch, height - 0.65 * inch, f"Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        sub = "Reporte de Inventario de Licencias" + (f" ({title_suffix})" if title_suffix else "")
+        canvas_obj.drawRightString(width - 0.5 * inch, height - 0.85 * inch, sub)
+
+    def draw_table_header(canvas_obj, y_pos):
+        canvas_obj.setFillColor(colors.HexColor("#f1f5f9"))
+        canvas_obj.rect(0.5 * inch, y_pos - 4, width - 1 * inch, 16, fill=1, stroke=0)
+        canvas_obj.setFillColor(colors.HexColor("#1e293b"))
+        canvas_obj.setFont("Helvetica-Bold", 9)
+        canvas_obj.drawString(0.55 * inch, y_pos, "Cliente")
+        canvas_obj.drawString(2.35 * inch, y_pos, "Licencia")
+        canvas_obj.drawRightString(5.1 * inch, y_pos, "Total")
+        canvas_obj.drawRightString(5.8 * inch, y_pos, "Cons.")
+        canvas_obj.drawRightString(6.5 * inch, y_pos, "Disp.")
+        canvas_obj.drawRightString(7.2 * inch, y_pos, "% Uso")
+        canvas_obj.setStrokeColor(colors.HexColor("#cbd5e1"))
+        canvas_obj.setLineWidth(0.5)
+        canvas_obj.line(0.5 * inch, y_pos - 4, width - 0.5 * inch, y_pos - 4)
+        return y_pos - 18
+
+    draw_header(p)
+    
+    # Subtítulo de sección y filtros activos
+    y = height - 1.55 * inch
+    p.setFillColor(colors.HexColor("#0f172a"))
+    p.setFont("Helvetica-Bold", 13)
+    p.drawString(0.5 * inch, y, "Reporte de Licencias por Cliente")
+    
+    p.setFont("Helvetica", 8)
+    p.setFillColor(colors.HexColor("#64748b"))
+    filtro_desc = "Filtro: " + ("Solo Comerciales (Excluye Free/Trial)" if exclude_free else "Todas las Licencias (Inc. Free/Trial)")
+    if only_consumed:
+        filtro_desc += " | Solo Asignadas"
+    p.drawRightString(width - 0.5 * inch, y + 2, filtro_desc)
+    y -= 0.35 * inch
+    
+    y = draw_table_header(p, y)
+    
+    total_general_total = 0
+    total_general_consumed = 0
+    current_tenant = None
+    tenant_subtotal_total = 0
+    tenant_subtotal_consumed = 0
+    page_num = 1
+
+    p.setFont("Helvetica", 8.5)
+
+    for i, l in enumerate(filtered):
+        tenant_name = l.tenant.name if l.tenant and l.tenant.name else "Cliente Desconocido"
+        
+        # Si cambiamos de cliente y ya teníamos uno, imprimimos subtotal del cliente
+        if current_tenant is not None and current_tenant != tenant_name:
+            if y < 1.2 * inch:
+                p.setFillColor(colors.HexColor("#64748b"))
+                p.setFont("Helvetica", 8)
+                p.drawRightString(width - 0.5 * inch, 0.4 * inch, f"Página {page_num}")
+                p.showPage()
+                page_num += 1
+                draw_header(p, "Cont.")
+                y = height - 1.5 * inch
+                y = draw_table_header(p, y)
+            
+            p.setFillColor(colors.HexColor("#f8fafc"))
+            p.rect(0.5 * inch, y - 3, width - 1 * inch, 14, fill=1, stroke=0)
+            p.setFillColor(colors.HexColor("#475569"))
+            p.setFont("Helvetica-Bold", 8)
+            p.drawString(0.55 * inch, y, f"Subtotal {current_tenant[:30]}")
+            p.drawRightString(5.1 * inch, y, str(tenant_subtotal_total))
+            p.drawRightString(5.8 * inch, y, str(tenant_subtotal_consumed))
+            p.drawRightString(6.5 * inch, y, str(tenant_subtotal_total - tenant_subtotal_consumed))
+            tenant_pct = round((tenant_subtotal_consumed / tenant_subtotal_total * 100) if tenant_subtotal_total > 0 else 0)
+            p.drawRightString(7.2 * inch, y, f"{tenant_pct}%")
+            y -= 18
+            tenant_subtotal_total = 0
+            tenant_subtotal_consumed = 0
+
+        current_tenant = tenant_name
+        tenant_subtotal_total += l.total_units
+        tenant_subtotal_consumed += l.consumed_units
+        total_general_total += l.total_units
+        total_general_consumed += l.consumed_units
+
+        # Verificar espacio para la siguiente fila
+        if y < 1.2 * inch:
+            p.setFillColor(colors.HexColor("#64748b"))
+            p.setFont("Helvetica", 8)
+            p.drawRightString(width - 0.5 * inch, 0.4 * inch, f"Página {page_num}")
+            p.showPage()
+            page_num += 1
+            draw_header(p, "Cont.")
+            y = height - 1.5 * inch
+            y = draw_table_header(p, y)
+
+        # Alternar color de fila tenue
+        if i % 2 == 1:
+            p.setFillColor(colors.HexColor("#fcfcfd"))
+            p.rect(0.5 * inch, y - 3, width - 1 * inch, 13, fill=1, stroke=0)
+
+        p.setFillColor(colors.HexColor("#1e293b"))
+        p.setFont("Helvetica", 8.5)
+        p.drawString(0.55 * inch, y, tenant_name[:24])
+        
+        friendly = get_friendly_name(l.sku_part_number)
+        p.drawString(2.35 * inch, y, friendly[:42])
+        
+        p.drawRightString(5.1 * inch, y, str(l.total_units))
+        p.drawRightString(5.8 * inch, y, str(l.consumed_units))
+        disp = l.total_units - l.consumed_units
+        p.drawRightString(6.5 * inch, y, str(disp))
+        
+        lic_pct = round((l.consumed_units / l.total_units * 100) if l.total_units > 0 else 0)
+        p.drawRightString(7.2 * inch, y, f"{lic_pct}%")
+        
+        y -= 14
+
+    # Subtotal para el último cliente
+    if current_tenant is not None:
+        if y < 1.2 * inch:
+            p.setFillColor(colors.HexColor("#64748b"))
+            p.setFont("Helvetica", 8)
+            p.drawRightString(width - 0.5 * inch, 0.4 * inch, f"Página {page_num}")
+            p.showPage()
+            page_num += 1
+            draw_header(p, "Cont.")
+            y = height - 1.5 * inch
+            y = draw_table_header(p, y)
+        
+        p.setFillColor(colors.HexColor("#f8fafc"))
+        p.rect(0.5 * inch, y - 3, width - 1 * inch, 14, fill=1, stroke=0)
+        p.setFillColor(colors.HexColor("#475569"))
+        p.setFont("Helvetica-Bold", 8)
+        p.drawString(0.55 * inch, y, f"Subtotal {current_tenant[:30]}")
+        p.drawRightString(5.1 * inch, y, str(tenant_subtotal_total))
+        p.drawRightString(5.8 * inch, y, str(tenant_subtotal_consumed))
+        p.drawRightString(6.5 * inch, y, str(tenant_subtotal_total - tenant_subtotal_consumed))
+        tenant_pct = round((tenant_subtotal_consumed / tenant_subtotal_total * 100) if tenant_subtotal_total > 0 else 0)
+        p.drawRightString(7.2 * inch, y, f"{tenant_pct}%")
+        y -= 20
+
+    # Fila de TOTAL GENERAL
+    if y < 1.2 * inch:
+        p.setFillColor(colors.HexColor("#64748b"))
+        p.setFont("Helvetica", 8)
+        p.drawRightString(width - 0.5 * inch, 0.4 * inch, f"Página {page_num}")
+        p.showPage()
+        page_num += 1
+        draw_header(p, "Totales")
+        y = height - 1.5 * inch
+
+    p.setFillColor(colors.HexColor("#1e1b4b"))
+    p.rect(0.5 * inch, y - 4, width - 1 * inch, 16, fill=1, stroke=0)
+    p.setFillColor(colors.white)
+    p.setFont("Helvetica-Bold", 9)
+    p.drawString(0.55 * inch, y, f"TOTAL GENERAL ({len(filtered)} licencias)")
+    p.drawRightString(5.1 * inch, y, str(total_general_total))
+    p.drawRightString(5.8 * inch, y, str(total_general_consumed))
+    p.drawRightString(6.5 * inch, y, str(total_general_total - total_general_consumed))
+    global_pct = round((total_general_consumed / total_general_total * 100) if total_general_total > 0 else 0)
+    p.drawRightString(7.2 * inch, y, f"{global_pct}%")
+
+    p.setFillColor(colors.HexColor("#64748b"))
+    p.setFont("Helvetica", 8)
+    p.drawRightString(width - 0.5 * inch, 0.4 * inch, f"Página {page_num}")
+    
     p.save()
     buffer.seek(0)
-    return StreamingResponse(buffer, media_type='application/pdf', headers={'Content-Disposition': 'attachment; filename="reporte_backupcode_m365.pdf"'})
+    filename = f"reporte_licencias_backupcode_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    return StreamingResponse(buffer, media_type='application/pdf', headers={'Content-Disposition': f'attachment; filename="{filename}"'})
 
 @app.get("/api/tenants/{id}")
 async def get_tenant_api(id: str, db: AsyncSession = Depends(get_db)):
